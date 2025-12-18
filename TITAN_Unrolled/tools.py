@@ -90,7 +90,7 @@ def full_to_blocks(W_full, idx_W, K):
         W_k = []
         L_k = len(idx_W[k])
         for l in range(L_k):
-            W_kl = W_full[idx_W[k][l], idx_W[k][l], k]
+            W_kl = W_full[idx_W[k][l], idx_W[k][l],k]
             W_k.append(W_kl)
         W_blocks.append(W_k)
     return W_blocks
@@ -100,20 +100,21 @@ def lipschitz(C,rho_Rx):
 
 
 def joint_isi_batch(W, A):
-    batch_size, N, _, _ = W.shape
+    _,N,_,_ = W.shape
     G_bar = torch.sum(torch.abs(torch.einsum('bnNk,bNvk->bnvk', W, A)), dim=3)
-    score = (torch.sum(torch.sum(G_bar / torch.max(G_bar, dim=1, keepdim=True)[0], dim=1), dim=0) +
-             torch.sum(torch.sum(G_bar.transpose(1, 2) / torch.max(G_bar.transpose(1, 2), dim=1, keepdim=True)[0], dim=1), dim=0))
-    return score / (2 * N * (N - 1))
+    term1 = torch.sum(torch.sum(G_bar / torch.max(G_bar, dim=2, keepdim=True)[0], dim=2) - 1, dim=1)
+    G_bar = G_bar.moveaxis(1,2)
+    term2 = torch.sum(torch.sum(G_bar / torch.max(G_bar, dim=2, keepdim=True)[0], dim=2) - 1, dim=1)
+    score =  term1 + term2 
+    # print(score)
+    return torch.sum(score) / (2 * N * (N - 1))
 
 
 def joint_isi(W, A):
     N, _, _ = W.shape
     G_bar = torch.sum(torch.abs(torch.einsum('nNk,Nvk->nvk', W, A)), dim=2)
-    score = (torch.sum(torch.sum(G_bar / torch.max(G_bar, dim=0)[0], dim=0) - 1) +
-             torch.sum(torch.sum(G_bar.t() / torch.max(G_bar.t(), dim=0)[0], dim=0) - 1))
+    score = torch.sum(torch.sum(G_bar / torch.max(G_bar, dim=0)[0], dim=0) - 1) + torch.sum(torch.sum(G_bar.t() / torch.max(G_bar.t(), dim=0)[0], dim=0) - 1)
     return score / (2 * N * (N - 1))
-
 
 
 def decrease(cost, verbose=0):
