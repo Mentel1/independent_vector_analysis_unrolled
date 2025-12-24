@@ -180,9 +180,9 @@ class Block(nn.Module):
         self.soft = nn.Softplus()
         self.tanh = nn.Tanh()
         self.gamma_w = nn.Parameter(torch.empty(1).to(device))
-        torch.nn.init.normal_(self.gamma_w, mean=-1.5, std=0.1)
+        torch.nn.init.normal_(self.gamma_w, mean=-1.3, std=0.1)
         self.gamma_c = nn.Parameter(torch.empty(1).to(device))
-        torch.nn.init.normal_(self.gamma_c, mean=-1.5, std=0.1)
+        torch.nn.init.normal_(self.gamma_c, mean=-1.3, std=0.1)
         self.epsilon = torch.tensor(epsilon,device=device)
         self.nu = nu
         self.zeta = zeta
@@ -217,7 +217,6 @@ class UTitanIVAGModel(nn.Module):
     def forward(self,X,Winit,Cinit,mode="end-to-end"):
         B,N,_,K = X.shape
         Rx = cov_X(X)
-        print('test nan in Rx', torch.isnan(Rx).any())
         rho_Rx = spectral_norm_extracted(Rx,K,N)
         W = Winit
         C = Cinit

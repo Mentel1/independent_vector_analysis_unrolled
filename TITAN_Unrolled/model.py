@@ -118,6 +118,7 @@ class UTitan:
                     # sets the gradients to zero, performs a backward pass, and updates the weights.
                     self.optimizer.zero_grad()
                     loss.backward()
+                    print(loss.device)
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     self.optimizer.step()
                 for (Xs,Winits,Cinits,As) in self.test_loader:
