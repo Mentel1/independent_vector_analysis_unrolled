@@ -46,7 +46,7 @@ class IVAGDataset(Dataset):
 
 
 class UTitan:
-    def __init__(self,path_train='training_data',path_test='testing_data',path_parameters='parameters',mode='end-to-end',dimensions=None,metaparameters=None,train_size=None,test_size=None,lr=0.1,N_updates_W=15,N_updates_C=1,num_epochs=2,early_stopping=True,batch_size=100,num_layers=100,epsilon=1e-12,nu=0.5,zeta=1e-3):
+    def __init__(self,path_train='training_data',path_test='testing_data',path_parameters='parameters',mode='end-to-end',dimensions=None,metaparameters=None,train_size=None,test_size=None,lr=0.1,N_updates_W=15,N_updates_C=1,num_epochs=2,early_stopping=False,batch_size=100,num_layers=100,epsilon=1e-12,nu=0.5,zeta=1e-3):
         # Model information
         self.dimensions = dimensions
         self.num_layers = num_layers
@@ -114,11 +114,10 @@ class UTitan:
                     Ws,_ = self.model(Xs,Winits,Cinits,self.mode)
                     loss = self.loss(Ws,As)
                     jisi_train[epoch] += loss.item()/self.train_size
-                    sys.stdout.write(f'\r Epoch {epoch+1}/{self.num_epochs}, batch {batch+1}/{self.num_batches}, loss: {loss:.4f} \n')
+                    # sys.stdout.write(f'\r Epoch {epoch+1}/{self.num_epochs}, batch {batch+1}/{self.num_batches}, loss: {loss:.4f} \n')
                     # sets the gradients to zero, performs a backward pass, and updates the weights.
                     self.optimizer.zero_grad()
                     loss.backward()
-                    print(loss.device)
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     self.optimizer.step()
                 for (Xs,Winits,Cinits,As) in self.test_loader:

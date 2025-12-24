@@ -31,7 +31,7 @@ metaparameters_multiparam = get_metaparameters(rhos,lambdas)
 metaparameters_titles_multiparam = ['Case A','Case B','Case C','Case D']
 
 learning_rate = 0.01
-num_epochs = 32
+num_epochs = 60
 batch_size = 20
 num_layers = 70
 
