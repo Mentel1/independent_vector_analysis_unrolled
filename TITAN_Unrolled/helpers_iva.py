@@ -42,6 +42,7 @@ import numpy as np
 import scipy as sc
 import scipy.linalg
 from scipy.special import gamma
+from tools import *
 
 
 
@@ -292,7 +293,7 @@ def whiten_data(x, dim_red=None):
         x_zm = x - torch.mean(x, dim=1, keepdim=True)
 
         # Step 2. Form MLE of data covariance.
-        covar = torch.matmul(x_zm, x_zm.transpose(0, 1)) / T
+        covar = sym(torch.matmul(x_zm, x_zm.transpose(0, 1)) / T) + 1e-4 * torch.eye(N, dtype=x.dtype, device=x.device)
 
         # Step 3. Eigen decomposition of covariance.
         eigval, eigvec = torch.linalg.eigh(covar)
@@ -312,17 +313,20 @@ def whiten_data(x, dim_red=None):
 
         eigval = torch.zeros((N, K), dtype=x.dtype, device=x.device)
         eigvec = torch.zeros((N, N, K), dtype=x.dtype, device=x.device)
-        x_zm = torch.zeros_like(x, device=x.device)
+        x_zm = torch.zeros_like(x, dtype=x.dtype, device=x.device)
 
         for k in range(K):
             # Step 1. Center the data.
             x_zm[:, :, k] = x[:, :, k] - torch.mean(x[:, :, k], dim=1, keepdim=True)
 
             # Step 2. Form MLE of data covariance.
-            covar = torch.matmul(x_zm[:, :, k], x_zm[:, :, k].transpose(0, 1)) / T
+            covar = torch.matmul(x_zm[:, :, k], x_zm[:, :, k].transpose(0, 1)) / T + 1e-4 * torch.eye(N, dtype=x.dtype, device=x.device)
 
             # Step 3. Eigen decomposition of covariance.
             eigval[:, k], eigvec[:, :, k] = torch.linalg.eigh(covar)
+            if (eigval[:, k] < 0).any():
+                print("Warning: negative eigenvalue encountered in whitening.")
+                print(eigval[:, k])
 
         # sort eigenvalues and corresponding eigenvectors in descending order
         eigval = torch.flipud(eigval)

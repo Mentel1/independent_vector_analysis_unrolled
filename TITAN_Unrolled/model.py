@@ -14,7 +14,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class IVAGDataset(Dataset):
     def __init__(self,data_path='',dimensions=None,metaparameters=None,size=1200):
         if os.path.exists(data_path):
-            self.data = torch.from_file(data_path)
+            self.data = torch.load(data_path)
             self.size = len(self.data)
             self.N,self.T,self.K = self.data[0][0].shape()
         else:
@@ -26,8 +26,16 @@ class IVAGDataset(Dataset):
             for i in range(self.size):
                 metaparam = self.metaparameters[i%self.num_metaparameters]
                 X,A = generate_whitened_problem(self.T,self.K,self.N,device=device,rho_bounds=metaparam[0],lambda_=metaparam[1])
+                if torch.isnan(X).any() or torch.isnan(A).any():
+                    print(f"NaN in sample {i} from generate_whitened_problem")
+                    print(f"  X has NaN: {torch.isnan(X).any()}, A has NaN: {torch.isnan(A).any()}")
+                    print(f"  metaparam: {metaparam}")
                 Winit = make_A(self.K,self.N,device=device)
+                if torch.isnan(Winit).any():
+                    print(f"NaN in sample {i} from make_A")
                 Cinit = make_Sigma(self.K,self.N,rank=self.K+10,device=device)
+                if torch.isnan(Cinit).any():
+                    print(f"NaN in sample {i} from make_Sigma")
                 self.data.append((X,Winit,Cinit,A))       
 
     def __len__(self):
@@ -56,7 +64,11 @@ class UTitan:
         self.early_stopping = early_stopping
         self.batch_size = batch_size 
         self.dtype = torch.cuda.FloatTensor 
-        self.optimizer = torch.optim.Adam(self.model.parameters(),lr=self.lr)
+        print(self.model.parameters())
+        self.optimizer = torch.optim.Adam(self.model.parameters(),lr=self.lr,weight_decay=1e-3)
+            # Initialize learning rate scheduler
+            #scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.1, patience=10) 
         self.loss = ISI_loss()
         
     def train(self):
@@ -71,6 +83,11 @@ class UTitan:
             self.training_set = IVAGDataset(data_path=self.path_train)
         else:
             self.training_set = IVAGDataset(dimensions=self.dimensions,metaparameters=self.metaparameters,size=self.train_size)
+        for i in range(len(self.training_set)):
+            X,Winit,Cinit,A = self.training_set[i]
+            if torch.isnan(X).any() or torch.isnan(Winit).any() or torch.isnan(Cinit).any() or torch.isnan(A).any():
+                print(f"NaN detected in training set at index {i}")
+                break
         self.train_loader = DataLoader(self.training_set,batch_size=self.batch_size,shuffle=True)
         if os.path.exists(self.path_test):
             self.testing_set = IVAGDataset(data_path=self.path_test)
@@ -90,9 +107,12 @@ class UTitan:
                 loss_min_eval = float('Inf')
             for epoch in range(0,self.num_epochs):
                 for batch,(Xs,Winits,Cinits,As) in enumerate(self.train_loader):
+                    if torch.isnan(Winits).any():
+                        print(f"NaN in W at batch {batch}")
+                    if torch.isnan(Cinits).any():
+                        print(f"NaN in C at batch {batch}")
                     Ws,_ = self.model(Xs,Winits,Cinits,self.mode)
                     loss = self.loss(Ws,As)
-                    #print("loss requires grad: ", loss.requires_grad)
                     jisi_train[epoch] += loss.item()/self.train_size
                     sys.stdout.write(f'\r Epoch {epoch+1}/{self.num_epochs}, batch {batch+1}/{self.num_batches}, loss: {loss:.4f} \n')
                     # sets the gradients to zero, performs a backward pass, and updates the weights.
@@ -105,6 +125,7 @@ class UTitan:
                         Ws,_ = self.model(Xs,Winits,Cinits,self.mode)
                         jisi_eval[epoch] += self.loss(Ws,As).item()/self.test_size
                 print(jisi_eval[epoch])
+                self.scheduler.step(jisi_eval[epoch])
                 if self.early_stopping:
                     if jisi_eval[epoch] < loss_min_eval:
                         loss_min_eval = jisi_eval[epoch]

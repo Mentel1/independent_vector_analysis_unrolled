@@ -97,9 +97,8 @@ def make_X(S,A):
     return X
 
 
-def generate_whitened_problem(T,K,N,epsilon=1,rho_bounds=[0.4,0.6],lambda_=0.25,device='cpu'): #,idx_W=None):
+def generate_whitened_problem(T,K,N,epsilon=1,rho_bounds=[0.4,0.6],lambda_=0.25,device='cpu'): 
     A = make_A(K,N)
-    # A = full_to_blocks(A,idx_W,K)
     Sigma = make_Sigma(K,N,rank=K+10,epsilon=epsilon,rho_bounds=rho_bounds,lambda_=lambda_,seed=None,normalize=False)
     S = make_S(Sigma,T)
     X = make_X(S,A)

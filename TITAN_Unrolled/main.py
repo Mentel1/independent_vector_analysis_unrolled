@@ -17,8 +17,8 @@ zeta = 1e-3
 # Hyperparameters
 
 T = 10000
-K = 10
-N = 10
+K = 8
+N = 8
 
 lambda_1 = 0.04
 lambda_2 = 0.25
@@ -31,11 +31,11 @@ metaparameters_multiparam = get_metaparameters(rhos,lambdas)
 metaparameters_titles_multiparam = ['Case A','Case B','Case C','Case D']
 
 learning_rate = 0.01
-num_epochs = 8
-batch_size = 4
-num_layers = 100
+num_epochs = 32
+batch_size = 20
+num_layers = 50
 
-test = UTitan(dimensions=(N,T,K),metaparameters=metaparameters_multiparam,train_size=400,test_size=40,batch_size=20,num_epochs=num_epochs,num_layers=num_layers,lr=learning_rate)
+test = UTitan(dimensions=(N,T,K),metaparameters=metaparameters_multiparam,train_size=400,test_size=100,batch_size=40,num_epochs=num_epochs,num_layers=num_layers,lr=learning_rate)
 # Afficher tous les noms et shapes des paramètres du modèle
 # for name, param in test.model.named_parameters():
 #     print(f"{name}: {param.shape}, requires_grad={param.requires_grad}")

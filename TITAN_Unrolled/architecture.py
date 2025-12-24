@@ -111,9 +111,10 @@ class W_iter(nn.Module):
     #     W = W + beta_w * (W - W_old)
     #     return W
     
-    def gradient_step(self,Rx,c_w,W,C):
-        c_w = c_w.view(-1,1,1,1)
-        W = W - c_w * grad_H_W(W,C,Rx)
+    def gradient_step(self, Rx, c_w, W, C):
+        c_w = c_w.view(-1, 1, 1, 1)
+        grad = grad_H_W(W, C, Rx)
+        W = W - c_w * grad
         return W
 
     def prox_step(self,c_w,W):
@@ -146,7 +147,8 @@ class C_iter(nn.Module):
     
     def gradient_step(self,Rx,c_c,C,W,alpha):
         c_c = c_c.view(-1,1,1,1)
-        C = C - c_c * grad_H_C_reg(W,C,Rx,alpha)
+        grad = grad_H_C_reg(W,C,Rx,alpha)
+        C = C - c_c * grad
         return C
 
     def prox_step(self,c_c,C,epsilon):
@@ -169,33 +171,19 @@ class C_iter(nn.Module):
 
 class Block(nn.Module):
 
-    """
-    One layer in U_TITAN.
-    Attributes
-    ----------
-        nn_bar                            (Cnn_bar): computes the barrier parameter
-        soft                    (torch.nn.Softplus): Softplus activation function
-        gamma                (torch.nn.FloatTensor): stepsize,size 1 
-        reg_mul,reg_constant (torch.nn.FloatTensor): parameters for estimating the regularization parameter,size 1
-        delta                               (float): total variation smoothing parameter
-        IPIter                             (IPIter): computes the next proximal interior point iterate
-    """
-
-
     def __init__(self,N_updates_W,N_updates_C,epsilon,nu,zeta):
     
         super().__init__()
-        #self.NN_alpha = FCNN_alpha(input_dim,32)
         self.W_iter = W_iter(N_updates_W)
         self.C_iter = C_iter(N_updates_C)
-        self.alpha_in = nn.Parameter(torch.zeros(1).to(device))
-        self.soft = nn.Softmax()
+        self.alpha = nn.Parameter(torch.zeros(1).to(device))
+        self.soft = nn.Softplus()
         self.tanh = nn.Tanh()
         self.gamma_w = nn.Parameter(torch.empty(1).to(device))
-        torch.nn.init.normal_(self.gamma_w, mean=-1.289, std=0.1)
+        torch.nn.init.normal_(self.gamma_w, mean=-1.5, std=0.1)
         self.gamma_c = nn.Parameter(torch.empty(1).to(device))
-        torch.nn.init.normal_(self.gamma_c, mean=-1.289, std=0.1)
-        self.epsilon = epsilon
+        torch.nn.init.normal_(self.gamma_c, mean=-1.5, std=0.1)
+        self.epsilon = torch.tensor(epsilon,device=device)
         self.nu = nu
         self.zeta = zeta
     
@@ -208,10 +196,11 @@ class Block(nn.Module):
 
     def forward(self,Rx,rho_Rx,W,C,i):
             
-        alpha = self.soft(self.alpha_in)
+        alpha = self.soft(self.alpha)
         gamma_w = 0.3 + 5*(self.tanh(self.gamma_w)+1)
         gamma_c = 0.3 + 5*(self.tanh(self.gamma_c)+1)
-        # print(f"stepsize factors at iteration {i}: gamma_w : {gamma_w}, gamma_c : {gamma_c}, alpha : {alpha}")
+        # if i%10 == 0:
+        #     print(f"stepsize factors at iteration {i}: gamma_w : {gamma_w}, gamma_c : {gamma_c}, alpha : {alpha}")
         c_w,c_c=self.get_coefficients(rho_Rx,C,alpha,gamma_c,gamma_w)
         W=self.W_iter(Rx,W,C,c_w)
         C=self.C_iter(Rx,C,W,c_c,alpha,self.epsilon)
@@ -224,12 +213,11 @@ class UTitanIVAGModel(nn.Module):
     def __init__(self,N_updates_W,N_updates_C,num_layers,epsilon,nu,zeta):
         super().__init__()
         self.Layers = nn.ModuleList([Block(N_updates_W,N_updates_C,epsilon,nu,zeta) for _ in range(num_layers)])
-        #self.alphas = nn.ParameterList([nn.Parameter(torch.tensor(1.0)) for _ in range(num_layers)])
-        #self.soft = nn.Softplus()
 
     def forward(self,X,Winit,Cinit,mode="end-to-end"):
         B,N,_,K = X.shape
         Rx = cov_X(X)
+        print('test nan in Rx', torch.isnan(Rx).any())
         rho_Rx = spectral_norm_extracted(Rx,K,N)
         W = Winit
         C = Cinit
@@ -237,145 +225,17 @@ class UTitanIVAGModel(nn.Module):
         # C_i_1 = C.clone()
         # C_j_1 = C.clone()
         for i in range(len(self.Layers)):
-            W,C = self.Layers[i](Rx,rho_Rx,W,C,i)
+            try:
+                W,C = self.Layers[i](Rx,rho_Rx,W,C,i)
+            except Exception as e:
+                print(f"Error at layer {i}: {e}")
+                # print("PARAMÈTRES DU MODÈLE:")
+                # for name, param in self.named_parameters():
+                #     if 'alpha' in name:   
+                #         print(f"\n{name}: {torch.log(1+torch.exp(param))}\n")
+                #     else:
+                #         print(f"\n{name}: {0.3+5*(nn.Tanh()(param)+1)}\n")
+                raise e
+                
         return W,C
     
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-"""
-class DeterministicBlock(nn.Module):
-    def __init__(self,Rx,rho_Rx,gamma_c,gamma_w,eps,nu,zeta):
-        super(DeterministicBlock,self).__init__()
-        self.Rx = Rx
-        self.rho_Rx = rho_Rx
-        self.gamma_c = gamma_c
-        self.gamma_w = gamma_w
-        self.eps = eps 
-        self.nu = nu
-        self.zeta = zeta
-        self.device = 'cuda:0'    
-
-    def forward(self,W,C,alpha,L_w_prev):
-        K = W.shape[2]
-        alpha = alpha.to(self.device)
-        #print(alpha.device)
-
-        l_sup = max((self.gamma_w*alpha)/(1-self.gamma_w),self.rho_Rx*2*K*(1+torch.sqrt(2/(alpha*self.gamma_c))))
-        C0 = min(self.gamma_c**2/K**2,(alpha*self.gamma_w/((1+self.zeta)*(1 - self.gamma_w)*l_sup)),(self.rho_Rx/((1+self.zeta)*l_sup)))
-        l_inf = (1+self.zeta)*C0*l_sup
-
-        c_c = self.gamma_c / alpha
-        beta_c = torch.sqrt(C0*self.nu*(1-self.nu))
-        L_w = max(l_inf,lipschitz(C,self.rho_Rx))
-        c_w = self.gamma_w / L_w
-        beta_w = (1 - self.gamma_w) * torch.sqrt(C0 * self.nu * (1 - self.nu) * L_w_prev / L_w)
-        W_prev = W.clone()
-        W_prev = W_prev.to(self.device)
-        #print(W.device)	
-
-        for _ in range(10):
-            
-            W_tilde = W + beta_w * (W - W_prev)
-            grad_W = grad_H_W(W_tilde,C,self.Rx)
-            W_bar = W_tilde - c_w * grad_W
-            W_prev = W.clone()
-            W = prox_f(W_bar,c_w)
-
-        C_prev = C.clone()
-        beta_c = torch.sqrt(C0 * self.nu * (1 - self.nu))
-        C_tilde = C + beta_c * (C - C_prev)
-        grad_C = grad_H_C_reg(W,C_tilde,self.Rx,alpha)
-        C_bar = C_tilde - c_c * grad_C
-        C_prev = C.clone()
-        C = prox_g(C_bar,c_c,self.eps)
-
-        return W,C,L_w
-
-
-
-
-# Define the TitanLayer
-class TitanLayer(nn.Module):
-    def __init__(self,Rx,rho_Rx,gamma_c,gamma_w,eps,nu,input_dim,zeta):
-        super(TitanLayer,self).__init__()
-        self.alpha_net = AlphaNetwork(input_dim)
-        self.deterministic_block = DeterministicBlock(Rx,rho_Rx,gamma_c,gamma_w,eps,nu,zeta)
-
-    def forward(self,W,C,L_w_prev):
-        alpha = self.alpha_net(W,C)
-        W,C,L_w = self.deterministic_block(W,C,alpha,L_w_prev)
-        return W,C,L_w,alpha
-    
-
-
-
-
-class TitanIVAGNet(nn.Module):
-    def __init__(self,input_dim,num_layers=20,gamma_c=1,gamma_w=0.99,eps=1e-12,nu=0.5,zeta=0.1):
-        super(TitanIVAGNet,self).__init__()
-        self.num_layers = num_layers
-        self.gamma_c = torch.tensor(gamma_c)
-        self.gamma_w = torch.tensor(gamma_w)
-        self.eps = torch.tensor(eps)
-        self.nu = torch.tensor(nu)  
-        self.zeta = torch.tensor(zeta)
-        self.alpha_network = AlphaNetwork(input_dim)
-        self.alphas = [torch.FloatTensor([1]).to('cuda') for _ in range(num_layers)]
-        self.input_dim = input_dim
-        self.layers = nn.ModuleList([
-            TitanLayer(None,None,gamma_c,gamma_w,eps,nu,input_dim,zeta)
-            for _ in range(num_layers)
-        ])
-    
-
-
-    def initialize_L_w(self,C,rho_Rx,K):
-        l_sup = max((self.gamma_w * self.alphas[0]) / (1 - self.gamma_w),rho_Rx * 2 * K * (1 + torch.sqrt(2 / (self.alphas[0] * self.gamma_c))))
-        C0 = min(self.gamma_c**2 / K**2,(self.alphas[0] * self.gamma_w / ((1 + self.zeta) * (1 - self.gamma_w) * l_sup)),(rho_Rx / ((1 + self.zeta) * l_sup)))
-        l_inf = (1 + self.zeta) * C0 * l_sup
-        return max(l_inf,lipschitz(C,rho_Rx))
-    
-    
-    def forward(self,X,A):
-        N,_,K = X.shape
-        input_dim = N * N * K + K * K * N
-        Rx = cov_X(X)
-        rho_Rx = spectral_norm_extracted(Rx,K,N)
-
-        
-        W,C = initialize(N,K,init_method='random',Winit=None,Cinit=None,X=X,Rx=Rx,seed=None)
-        
-        L_w_prev = self.initialize_L_w(C,rho_Rx,K)
-
-
-        for i,layer in enumerate(self.layers):
-
-            layer.deterministic_block = DeterministicBlock(Rx,rho_Rx,self.gamma_c,self.gamma_w,self.eps,self.nu,self.zeta)  # Ensure each layer has its own deterministic block
-            W,C,L_w,alpha = layer(W,C,L_w_prev)
-            L_w_prev = L_w
-            self.alphas[i] = alpha
-            
-
-        
-        isi_score = joint_isi(W,A)
-
-        return W,C,isi_score
-
-"""
