@@ -12,8 +12,8 @@ def sym(A):
 
 
 def cov_X(X):
-    _,_,T,_ = X.size()
-    Rx = torch.einsum('bNTK,bMTJ->bKJNM',X,X) / T
+    _,T,_ = X.size()
+    Rx = torch.einsum('NTK,MTJ->KJNM',X,X) / T
     return Rx
 
 

@@ -106,7 +106,8 @@ def generate_whitened_problem(T,K,N,epsilon=1,rho_bounds=[0.4,0.6],lambda_=0.25,
     A_ = torch.einsum('nNk,Nvk->nvk',U,A)
     X_ = X_.to(device)
     A_ = A_.to(device)
-    return X_,A_
+    Rx = cov_X(X_)
+    return Rx,A_
 
 
 def get_metaparameters(rhos,lambdas):
