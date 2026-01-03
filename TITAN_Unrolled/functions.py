@@ -21,38 +21,11 @@ def grad_H_W(W,C,Rx):
 
 def prox_f(W, c_w):
     W_perm = W.permute(0, 3, 1, 2)
-    
-    # VÉRIFICATIONS
-    # print(f"W_perm - min: {W_perm.min():.6f}, max: {W_perm.max():.6f}")
-    # print(f"W_perm - has NaN: {torch.isnan(W_perm).any()}, has Inf: {torch.isinf(W_perm).any()}")
-    
-    # Condition number (mesure si matrice mal conditionnée)
-    # Plus c'est grand, plus c'est instable
-    norms = torch.linalg.matrix_norm(W_perm, ord=2)
-    # print(f"Matrix norms: min={norms.min():.6f}, max={norms.max():.6f}")
-    
-    # Vérifier si matrice trop grande
-    if norms.max() > 1e6:
-        print(f"WARNING: Very large matrix norm detected!")
-    
-    try:
-        U, s, Vh = torch.linalg.svd(W_perm)
-    except RuntimeError as e:
-        print(f"SVD failed!")
-        print(f"W_perm values: {W_perm}")
-        raise e
-    
-    # Vérifier les valeurs singulières
-    # print(f"Singular values - min: {s.min():.6f}, max: {s.max():.6f}")
-    # if s.max() / (s.min() + 1e-10) > 1e10:
-    #     print(f"WARNING: Very ill-conditioned matrix (condition number ~{s.max()/s.min():.2e})")
-    
-    # ... reste du code
+    U, s, Vh = torch.linalg.svd(W_perm)
     c_w = c_w.view(-1, 1, 1)
-    s_new = (s + torch.sqrt(s**2 + 4 * c_w))
-    s_new = s_new / 2
+    s_new = (s + torch.sqrt(s**2 + 4 * c_w))/2
     diag_s = torch.diag_embed(s_new)
-    W_new = torch.einsum('bknv,bkvw,bkwm -> bknm', U, diag_s, Vh)
+    W_new = torch.einsum('bknv,bkvw,bkwm -> bknm',U,diag_s,Vh)
     return W_new.permute(0, 2, 3, 1)
 
 
@@ -88,6 +61,7 @@ def grad_H_C_reg(W,C,Rx,alpha):
     grad = sym(torch.einsum('bnNK,bKJNM,bnMJ->bKJn',W,Rx,W))/2
     indices = torch.arange(K).to(W.device)
     grad = grad.clone()
+    alpha = alpha.view(-1, 1, 1)
     grad[:, indices, indices, :] = grad[:, indices, indices, :] + alpha * (C[:, indices, indices, :] - 1)
     return grad
 

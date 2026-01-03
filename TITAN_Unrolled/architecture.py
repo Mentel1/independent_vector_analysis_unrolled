@@ -20,7 +20,7 @@ import torch.nn.functional as F
 from functions import *
 from tools import *
 from data import *
-
+from torch.utils.checkpoint import checkpoint
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -65,9 +65,9 @@ class IVA_loss():
         return res.item()  # Convertir le résultat en un scalaire Python
 
 
-class FCNN_alpha(nn.Module):
+class Custom_param(nn.Module):
     """
-    Predicts the regularization parameter alpha given W and C.
+    Computes the parameters of the current layer given W, W_prev, C and C_prev.
     Attributes
     ----------
         fc1 (torch.nn.Linear): fully connected layer
@@ -75,31 +75,31 @@ class FCNN_alpha(nn.Module):
         soft (torch.nn.Softplus): Softplus activation function
     """
     def __init__(self,input_size,hidden_size,output_size=1):
-        super(FCNN_alpha,self).__init__()
+        super(Custom_param,self).__init__()
         self.fc1 = nn.Linear(input_size,hidden_size)
+        self.bn1 = nn.BatchNorm1d(hidden_size) 
         self.fc2 = nn.Linear(hidden_size,output_size)
         self.soft = nn.Softplus()
+        self.tanh = nn.Tanh()
+        self.relu = nn.ReLU()
         
-    def forward(self,W,C):
-        """
-        Computes the regularization parameter alpha.
-        Parameters
-        ----------
-            W (torch.FloatTensor): input tensor W,size [batch_size,W_size]
-            C (torch.FloatTensor): input tensor C,size [batch_size,C_size]
-        Returns
-        -------
-            torch.FloatTensor: alpha parameter,size [batch_size,1]
-        """
-        # Flatten W to size [N*N*K]
-        W = W.view(-1)
-        # Flatten C to size [K*K*N]
-        C = C.view(-1)
-        # Concatenate W and C along the last dimension
-        x = torch.cat((W,C))
-        x = self.soft(self.fc1(x))
-        x = self.fc2(x)
-        x = self.soft(x)
+    
+    def forward(self, W, W_prev, C, C_prev):
+        batch_size = W.shape[0]
+        
+        # Utilise reshape au lieu de view
+        W = W.reshape(batch_size, -1)        # (b, N*M*K)
+        W_prev = W_prev.reshape(batch_size, -1)
+        C = C.reshape(batch_size, -1)        # (b, K*K*N)
+        C_prev = C_prev.reshape(batch_size, -1)
+        
+        x = torch.cat((W, W_prev, C, C_prev), dim=1)
+        x = self.fc1(x)
+        x = self.bn1(x)
+        x = self.tanh(x)
+        x = self.fc2(x) 
+        x = (1+self.tanh(x-3))*torch.tensor([1,1,1,0.1,0.1],device=x.device)
+        
         return x
 
 
@@ -139,10 +139,11 @@ class W_iter(nn.Module):
     
 
 class C_iter(nn.Module):
-    def __init__(self,N_updates_C,inertial=False):
+    def __init__(self,N_updates_C,epsilon,inertial=False):
         super(C_iter,self).__init__()
         self.N_updates_C = N_updates_C
         self.inertial = inertial
+        self.epsilon = torch.tensor(epsilon,device=device)
 
     def inertial_step(self,C,C_prev,beta_c):
         if self.inertial:
@@ -156,65 +157,80 @@ class C_iter(nn.Module):
         C = C - c_c * grad
         return C
 
-    def prox_step(self,c_c,C,epsilon):
-        return prox_g(C,c_c,epsilon)
+    def prox_step(self,c_c,C):
+        return prox_g(C,c_c,self.epsilon)
     
-    def update(self,Rx,C,C_prev,W,c_c,beta_c,alpha,epsilon):
+    def update(self,Rx,C,C_prev,W,c_c,beta_c,alpha):
         C_inertial = self.inertial_step(C,C_prev,beta_c)
         C_gradient = self.gradient_step(Rx,c_c,C_inertial,W,alpha)
-        C_prox = self.prox_step(c_c,C_gradient,epsilon)
+        C_prox = self.prox_step(c_c,C_gradient)
         return C_prox,C
 
-    def forward(self,Rx,C,C_prev,W,c_c,beta_c,alpha,epsilon):
+    def forward(self,Rx,C,C_prev,W,c_c,beta_c,alpha):
         for j in range(self.N_updates_C):
-            C,C_prev = self.update(Rx,C,C_prev,W,c_c,beta_c,alpha,epsilon)
+            C,C_prev = self.update(Rx,C,C_prev,W,c_c,beta_c,alpha)
         return C,C_prev
 
 
 class Block(nn.Module):
 
-    def __init__(self,N_updates_W,N_updates_C,epsilon,inertial=False):
+    def __init__(self,N_updates_W,N_updates_C,epsilon,inertial=False,custom=False,N=10,K=10):
     
         super().__init__()
         self.W_iter = W_iter(N_updates_W,inertial=inertial)
-        self.C_iter = C_iter(N_updates_C,inertial=inertial)
-        self.alpha = nn.Parameter(torch.zeros(1).to(device))
-        self.beta_w = nn.Parameter(torch.zeros(1).to(device))
-        self.beta_c = nn.Parameter(torch.zeros(1).to(device))
+        self.C_iter = C_iter(N_updates_C,epsilon,inertial=inertial)
+        self.epsilon = epsilon
         self.soft = nn.Softplus()
         self.tanh = nn.Tanh()
-        self.gamma_w = nn.Parameter(torch.empty(1).to(device))
-        torch.nn.init.normal_(self.gamma_w,mean=-1.3,std=0.1)
-        self.gamma_c = nn.Parameter(torch.empty(1).to(device))
-        torch.nn.init.normal_(self.gamma_c,mean=-1.3,std=0.1)
-        self.epsilon = torch.tensor(epsilon,device=device)
-    
-    def get_coefficients(self,rho_Rx,C,alpha,gamma_c,gamma_w):
-        L_w = lipschitz(C,rho_Rx)
-        c_w = gamma_w/L_w  
-        c_c = gamma_c/alpha
-        return c_w,c_c
-
+        self.custom = custom
+        if self.custom:
+            total_dim = 2*N*K*(N+K)
+            output_size = 5
+            self.get_coeff_module = Custom_param(input_size=total_dim,hidden_size=128,output_size=output_size)
+        else:
+            self.alpha = nn.Parameter(torch.zeros(1).to(device))
+            self.beta_w = nn.Parameter(torch.zeros(1).to(device))
+            self.beta_c = nn.Parameter(torch.zeros(1).to(device))      
+            self.gamma_w = nn.Parameter(torch.empty(1).to(device))
+            torch.nn.init.normal_(self.gamma_w,mean=-1.3,std=0.1)
+            self.gamma_c = nn.Parameter(torch.empty(1).to(device))
+            torch.nn.init.normal_(self.gamma_c,mean=-1.3,std=0.1)
+        
+          
+    def get_coefficients(self,rho_Rx,C,C_prev,W,W_prev):
+        if self.custom:
+            return self.get_coeff_module(W,W_prev,C,C_prev).moveaxis(1,0)
+        else:
+            batch_size = W.shape[0]
+            alpha = self.soft(self.alpha)*torch.ones(batch_size,device=W.device)
+            beta_w = self.soft(self.beta_w-1)*torch.ones(batch_size,device=W.device)
+            beta_c = self.soft(self.beta_c-1)*torch.ones(batch_size,device=W.device)
+            gamma_w = 0.3 + 5*(self.tanh(self.gamma_w)+1)
+            gamma_c = 0.3 + 5*(self.tanh(self.gamma_c)+1)   
+            L_w = lipschitz(C,rho_Rx)
+            c_w = gamma_w/L_w  
+            c_c = gamma_c/alpha
+            return torch.stack([alpha, c_w, c_c, beta_w, beta_c])   
 
     def forward(self,Rx,rho_Rx,W,W_prev,C,C_prev,i):
-            
-        alpha = self.soft(self.alpha)
-        beta_w = self.soft(self.beta_w-1)
-        beta_c = self.soft(self.beta_c-1)
-        gamma_w = 0.3 + 5*(self.tanh(self.gamma_w)+1)
-        gamma_c = 0.3 + 5*(self.tanh(self.gamma_c)+1)
-        c_w,c_c=self.get_coefficients(rho_Rx,C,alpha,gamma_c,gamma_w)
+        alpha,c_w,c_c,beta_w,beta_c=self.get_coefficients(rho_Rx,C,C_prev,W,W_prev)
+        # if i==0:
+        #     print(alpha,c_w,c_c,beta_w,beta_c)
+        if torch.isnan(alpha).any() or torch.isnan(c_w).any() or torch.isnan(c_c).any() or torch.isnan(beta_w).any() or torch.isnan(beta_c).any():
+            print(f"NaN détecté au niveau des paramètres dans la couche {i} !")
         W_new,W=self.W_iter(Rx,W,W_prev,C,c_w,beta_w)
-        C_new,C=self.C_iter(Rx,C,C_prev,W_new,c_c,beta_c,alpha,self.epsilon)
+        C_new,C=self.C_iter(Rx,C,C_prev,W_new,c_c,beta_c,alpha)
+        if torch.isnan(W_new).any() or torch.isnan(W).any() or torch.isnan(C_new).any() or torch.isnan(C).any():
+            print(f"NaN détecté au niveau des tenseurs de sortie dans la couche {i} !")
         
         return W_new,C_new,W,C
 
 
 class UTitanIVAGModel(nn.Module):
 
-    def __init__(self,N_updates_W,N_updates_C,num_layers,epsilon,inertial=False):
+    def __init__(self,N_updates_W,N_updates_C,num_layers,epsilon,inertial=False,custom=False,N=10,K=10):
         super().__init__()
-        self.Layers = nn.ModuleList([Block(N_updates_W,N_updates_C,epsilon,inertial=inertial) for _ in range(num_layers)])
+        self.Layers = nn.ModuleList([Block(N_updates_W,N_updates_C,epsilon,inertial=inertial,custom=custom,N=N,K=K) for _ in range(num_layers)])
 
     def forward(self,Rx,Winit,Cinit):
         _,N,_,K = Winit.shape
@@ -225,10 +241,12 @@ class UTitanIVAGModel(nn.Module):
         # C_i_1 = C.clone()
         C_prev = C.clone()
         for i in range(len(self.Layers)):
+            # print(i, torch.cuda.memory_allocated() / 1024**3)
             try:
-                W,C,W_prev,C_prev = self.Layers[i](Rx,rho_Rx,W,W_prev,C,C_prev,i)
+                W,C,W_prev,C_prev = checkpoint(self.Layers[i],Rx,rho_Rx,W,W_prev,C,C_prev,i,use_reentrant=False)
             except Exception as e:
                 print(f"Error at layer {i}: {e}")
+                print("non rien")
                 raise e                
         return W,C
     

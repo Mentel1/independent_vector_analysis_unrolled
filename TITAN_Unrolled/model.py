@@ -18,7 +18,7 @@ class IVAGDataset(Dataset):
         self.size = size
         regenerate = True
         if os.path.exists(self.data_path):
-            self.data = torch.load(self.data_path)
+            self.data = torch.load(self.data_path,weights_only=True)
             regenerate = self.__len__() != self.size             
         if regenerate:
             self.data = [] 
@@ -39,7 +39,7 @@ class IVAGDataset(Dataset):
 
 
 class UTitan:
-    def __init__(self,model_name='UTitan',train_file='training_data',test_file='testing_data',parameters_file='parameters',mode='end-to-end',dimensions=(10,10000,10),metaparameters=None,metaparameters_title='Multi_case',train_size=1000,test_size=200,lr=0.1,N_updates_W=15,N_updates_C=1,num_epochs=20,loss=ISI_loss(),batch_size=64,num_layers=100,epsilon=1e-12):
+    def __init__(self,model_name='UTitan',train_file='training_data',test_file='testing_data',parameters_file='parameters',mode='end-to-end',dimensions=(10,10000,10),metaparameters=None,metaparameters_title='Multi_case',train_size=1000,test_size=200,lr=0.1,N_updates_W=15,N_updates_C=1,num_epochs=20,loss=ISI_loss(),batch_size=64,num_layers=100,epsilon=1e-12,inertial=False,custom=False):
         # Path information
         self.model_name = model_name
         now = datetime.now()
@@ -57,7 +57,7 @@ class UTitan:
         self.dtype = torch.cuda.FloatTensor
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.num_layers = num_layers
-        self.model = UTitanIVAGModel(N_updates_W,N_updates_C,num_layers=num_layers,epsilon=epsilon).to(self.device)
+        self.model = UTitanIVAGModel(N_updates_W,N_updates_C,num_layers=num_layers,epsilon=epsilon,inertial=inertial,custom=custom,N=self.N,K=self.K).to(self.device)
         self.model_path = f'Result_data/{self.metaparameters_title}/N_{self.N}_K_{self.K}/{self.model_name}_{self.date}'
         os.makedirs(self.model_path,exist_ok=True)
         self.parameters_path = os.path.join(self.model_path,parameters_file)
@@ -98,7 +98,10 @@ class UTitan:
                     # sets the gradients to zero, performs a backward pass, and updates the weights.
                     self.optimizer.zero_grad()
                     loss.backward()
-                    # torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                    for name, p in self.model.named_parameters():
+                        if p.grad is not None and torch.isnan(p.grad).any():
+                            print(f"NaN détecté dans le gradient de {name} !")
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     self.optimizer.step()
                 for (Rxs,Winits,Cinits,As) in self.test_loader:
                     with torch.no_grad():
