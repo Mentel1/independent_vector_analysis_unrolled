@@ -22,9 +22,6 @@ from tools import *
 from data import *
 from torch.utils.checkpoint import checkpoint
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
 class ISI_loss():
     """
     Defines the ISI training loss.
@@ -35,34 +32,57 @@ class ISI_loss():
     def __init__(self): 
         super(ISI_loss,self).__init__()
         
-    def __call__(self,input,target):
+    def __call__(self,outputs,greedy=False,log=False):
+        W_out,store_W,label = outputs['W'],outputs['store_W'],outputs['A']
+        num_layers = store_W.shape[0]
         """
         Computes the training loss.
         Parameters
         ----------
-            input  (torch.FloatTensor): restored images,size n*c*h*w 
-            target (torch.FloatTensor): ground-truth images,size n*c*h*w
+            output  (torch.FloatTensor): restored images,size n*c*h*w 
+            label (torch.FloatTensor): ground-truth images,size n*c*h*w
         Returns
         -------
             (torch.FloatTensor): mean ISI Score of the batch,size 1 
         """
-        return joint_isi_batch(input,target)
+        if greedy:
+            loss = torch.zeros(1,device = W_out.device)
+            for i in range(num_layers):
+                W = store_W[i,:,:,:,:]
+                loss += joint_isi_batch(W,label,log=log)/num_layers
+            return loss
+        else:
+            return joint_isi_batch(W_out,label,log=log)
+
 
 class IVA_loss():
     def __init__(self): 
-        super(ISI_loss,self).__init__()
+        super(IVA_loss,self).__init__()
         
-    def __call__(self,input): # A modifier pour faire le calcul sur tout le batch (W et C sont de dim B*_*_*_)
-        W,C,Rx,alpha = input
-        det_C = torch.det(C.permute(2,0,1))  # Déterminant de C
-        det_W = torch.det(W.permute(2,0,1))  # Déterminant de W
-        tr_C = torch.trace((C - 1)**2)  # Trace de (C - 1)^2
-        tr_term = torch.trace(torch.sum(torch.einsum('kKn,nNK,KJNM,nMJ -> kJn',(C,W,Rx,W)),dim=2)) / 2  # Terme de trace
-        res = -torch.sum(torch.log(torch.abs(det_C))) / 2  # Premier terme
-        res += 0.5 * alpha * tr_C  # Deuxième terme
-        res += tr_term  # Troisième terme
-        res -= torch.sum(torch.log(torch.abs(det_W)))  # Quatrième terme
-        return res.item()  # Convertir le résultat en un scalaire Python
+    def __call__(self,outputs,greedy=False): # A modifier pour faire le calcul sur tout le batch (W et C sont de dim B*_*_*_)
+        Ws,Cs,Rx,store_W,store_C = outputs['W'],outputs['C'],outputs['Rx'],outputs['store_W'],outputs['store_C']
+        res = torch.zeros(1,device=Ws.device)
+        if greedy:
+            for i in range(store_W.shape[0]):
+                W,C = store_W[i,:,:,:,:],store_C[i,:,:,:,:]
+                det_C = torch.det(C.permute(0,3,1,2))  # Déterminant de C
+                det_W = torch.det(W.permute(0,3,1,2))  # Déterminant de W
+                tr_C = torch.diagonal((C.permute(0,3,1,2) - 1) ** 2, dim1=-2, dim2=-1).sum()
+                tr_term = (torch.einsum('bKJn,bnNK,bKJNM,bnMJ -> bnKJ',(C,W,Rx,W))).sum() / 2  # Terme de trace
+                res -= torch.sum(torch.log(torch.abs(det_C))) / 2  # Premier terme
+                res += 0.5 * tr_C  # Deuxième terme
+                res += tr_term  # Troisième terme
+                res -= torch.sum(torch.log(torch.abs(det_W)))  # Quatrième terme
+        else:
+            det_C = torch.det(Cs.permute(0,3,1,2))  # Déterminant de C
+            det_W = torch.det(Ws.permute(0,3,1,2))  # Déterminant de W
+            tr_C = torch.diagonal((Cs.permute(0,3,1,2) - 1) ** 2, dim1=-2, dim2=-1).sum()
+            tr_term = (torch.einsum('bKJn,bnNK,bKJNM,bnMJ -> bnKJ',(Cs,Ws,Rx,Ws))).sum() / 2  # Terme de trace
+            res -= torch.sum(torch.log(torch.abs(det_C))) / 2  # Premier terme
+            res += 0.5 * tr_C  # Deuxième terme
+            res += tr_term  # Troisième terme
+            res -= torch.sum(torch.log(torch.abs(det_W)))  # Quatrième terme
+        return res
 
 
 class Custom_param(nn.Module):
@@ -101,8 +121,17 @@ class Custom_param(nn.Module):
         x = (1+self.tanh(x-3))*torch.tensor([1,1,1,0.1,0.1],device=x.device)
         
         return x
+    
+'''
+Amélioration prévue du module Custom_param: au lieu de calculer les 5 paramètres d'un coup au début du bloc et avec une logique indifférenciée pour chaque paramètre, on peut sans doute faire beaucoup plus subtil avec moins de paramètres au total pour éviter l'overfitting et l'instabilité qu'on observe dans la version actuelle.
 
+D'abord, on pourrait subdiviser les paramètres:
+- c_w -> un c_wn_grad pour chaque nabla_W_n h et un c_wk_prox pour chaque prox_f (W_k)
+- c_c, alpha -> même logique
+- beta_w et beta_c -> même logique en subdivisant en beta_wn et beta_cn
 
+Les paramètres seraient recalculés plusieurs fois juste avant leur utilisation réelle (on aurait donc en pratique des beta_wn^(i,j) au lieu d'un simple beta_w^(i). D'ailleurs, on pourrait utiliser un seul module pour toutes les couches, l'adaptabilité venant déjà de la prise en compte de l'état courant des variables. En contrepartie on aurait la possibilité d'avoir des modules assez complexes avec plusieurs couches cachées.)
+'''
 
 class W_iter(nn.Module):
 
@@ -124,7 +153,9 @@ class W_iter(nn.Module):
         return W
 
     def prox_step(self,c_w,W):
-        return prox_f(W,c_w)
+        W = W.double()
+        c_w = c_w.double()
+        return prox_f(W,c_w).float()
 
     def update(self,Rx,W,W_prev,C,c_w,beta_w):
         W_inertial = self.inertial_step(W,W_prev,beta_w)
@@ -132,9 +163,12 @@ class W_iter(nn.Module):
         W_prox = self.prox_step(c_w,W_gradient)
         return W_prox,W
     
-    def forward(self,Rx,W,W_prev,C,c_w,beta_w):
+    def forward(self,Rx,W,W_prev,C,c_w,beta_w,i):
         for j in range(self.N_updates_W):
-            W,W_prev = self.update(Rx,W,W_prev,C,c_w,beta_w)
+            try:
+                W,W_prev = self.update(Rx,W,W_prev,C,c_w,beta_w)
+            except Exception as e:
+                print(f'error at layer {i}, sublayer {j} raising the following : {e}')
         return W,W_prev
     
 
@@ -143,7 +177,7 @@ class C_iter(nn.Module):
         super(C_iter,self).__init__()
         self.N_updates_C = N_updates_C
         self.inertial = inertial
-        self.epsilon = torch.tensor(epsilon,device=device)
+        self.epsilon = torch.tensor(epsilon,dtype=torch.float64)
 
     def inertial_step(self,C,C_prev,beta_c):
         if self.inertial:
@@ -158,7 +192,9 @@ class C_iter(nn.Module):
         return C
 
     def prox_step(self,c_c,C):
-        return prox_g(C,c_c,self.epsilon)
+        C = C.double()
+        c_c = c_c.double()
+        return prox_g(C,c_c,self.epsilon).float()
     
     def update(self,Rx,C,C_prev,W,c_c,beta_c,alpha):
         C_inertial = self.inertial_step(C,C_prev,beta_c)
@@ -183,17 +219,18 @@ class Block(nn.Module):
         self.soft = nn.Softplus()
         self.tanh = nn.Tanh()
         self.custom = custom
+        self.debug_history = []
         if self.custom:
             total_dim = 2*N*K*(N+K)
             output_size = 5
             self.get_coeff_module = Custom_param(input_size=total_dim,hidden_size=128,output_size=output_size)
         else:
-            self.alpha = nn.Parameter(torch.zeros(1).to(device))
-            self.beta_w = nn.Parameter(torch.zeros(1).to(device))
-            self.beta_c = nn.Parameter(torch.zeros(1).to(device))      
-            self.gamma_w = nn.Parameter(torch.empty(1).to(device))
+            self.alpha = nn.Parameter(torch.zeros(1))
+            self.beta_w = nn.Parameter(torch.zeros(1))
+            self.beta_c = nn.Parameter(torch.zeros(1))      
+            self.gamma_w = nn.Parameter(torch.empty(1))
             torch.nn.init.normal_(self.gamma_w,mean=-1.3,std=0.1)
-            self.gamma_c = nn.Parameter(torch.empty(1).to(device))
+            self.gamma_c = nn.Parameter(torch.empty(1))
             torch.nn.init.normal_(self.gamma_c,mean=-1.3,std=0.1)
         
           
@@ -214,39 +251,46 @@ class Block(nn.Module):
 
     def forward(self,Rx,rho_Rx,W,W_prev,C,C_prev,i):
         alpha,c_w,c_c,beta_w,beta_c=self.get_coefficients(rho_Rx,C,C_prev,W,W_prev)
-        # if i==0:
-        #     print(alpha,c_w,c_c,beta_w,beta_c)
-        if torch.isnan(alpha).any() or torch.isnan(c_w).any() or torch.isnan(c_c).any() or torch.isnan(beta_w).any() or torch.isnan(beta_c).any():
-            print(f"NaN détecté au niveau des paramètres dans la couche {i} !")
-        W_new,W=self.W_iter(Rx,W,W_prev,C,c_w,beta_w)
-        C_new,C=self.C_iter(Rx,C,C_prev,W_new,c_c,beta_c,alpha)
-        if torch.isnan(W_new).any() or torch.isnan(W).any() or torch.isnan(C_new).any() or torch.isnan(C).any():
-            print(f"NaN détecté au niveau des tenseurs de sortie dans la couche {i} !")
-        
+        W_new,W=self.W_iter(Rx,W,W_prev,C,c_w,beta_w,i)
+        C_new,C=self.C_iter(Rx,C,C_prev,W_new,c_c,beta_c,alpha)      
         return W_new,C_new,W,C
+    
 
 
 class UTitanIVAGModel(nn.Module):
 
-    def __init__(self,N_updates_W,N_updates_C,num_layers,epsilon,inertial=False,custom=False,N=10,K=10):
+    def __init__(self,N_updates_W,N_updates_C,num_layers,epsilon,archi='untied',custom=False,N=10,K=10):
         super().__init__()
-        self.Layers = nn.ModuleList([Block(N_updates_W,N_updates_C,epsilon,inertial=inertial,custom=custom,N=N,K=K) for _ in range(num_layers)])
+        self.inertial = archi == 'inertial'
+        self.num_layers = num_layers
+        if archi == 'tied':
+            self.tied = True
+            self.Layer = Block(N_updates_W,N_updates_C,epsilon,inertial=self.inertial,custom=custom,N=N,K=K)
+        else:
+            self.tied = False
+            self.Layers = nn.ModuleList([Block(N_updates_W,N_updates_C,epsilon,inertial=self.inertial,custom=custom,N=N,K=K) for _ in range(num_layers)])
+        
 
-    def forward(self,Rx,Winit,Cinit):
-        _,N,_,K = Winit.shape
+    def forward(self,Rx,Winit,Cinit,active_layers=(0,float('inf'))):
+        first_layer,last_layer = active_layers
+        B,N,_,K = Winit.shape
         rho_Rx = spectral_norm_extracted(Rx,K,N)
         W = Winit
         C = Cinit
         W_prev = W.clone()
-        # C_i_1 = C.clone()
         C_prev = C.clone()
-        for i in range(len(self.Layers)):
-            # print(i, torch.cuda.memory_allocated() / 1024**3)
-            try:
-                W,C,W_prev,C_prev = checkpoint(self.Layers[i],Rx,rho_Rx,W,W_prev,C,C_prev,i,use_reentrant=False)
-            except Exception as e:
-                print(f"Error at layer {i}: {e}")
-                print("non rien")
-                raise e                
-        return W,C
-    
+        num_iter = self.num_layers
+        store_W = torch.zeros((num_iter,B,N,N,K),device=W.device)
+        store_C = torch.zeros((num_iter,B,K,K,N),device=W.device)
+        if first_layer == last_layer:
+            num_iter = first_layer+1
+        for i in range(num_iter):
+            layer = self.Layer if self.tied else self.Layers[i]  
+            if i < first_layer or i > last_layer:
+                with torch.no_grad():
+                    W, C, W_prev, C_prev = checkpoint(layer, Rx, rho_Rx, W, W_prev, C, C_prev, i, use_reentrant=False)
+            else:
+                W, C, W_prev, C_prev = checkpoint(layer, Rx, rho_Rx, W, W_prev, C, C_prev, i, use_reentrant=False)
+            store_W[i,:,:,:,:] = W
+            store_C[i,:,:,:,:] = C             
+        return W,C,store_W,store_C

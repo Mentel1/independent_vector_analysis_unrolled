@@ -7,13 +7,13 @@ from initializations import _jbss_sos,_cca
 def cost_iva_g_reg(W,C,Rx,alpha):
     det_C = torch.det(C.permute(2,0,1))  # Déterminant de C
     det_W = torch.det(W.permute(2,0,1))  # Déterminant de W
-    tr_C = torch.trace((C - 1)**2)  # Trace de (C - 1)^2
-    tr_term = torch.trace(torch.sum(torch.einsum('kKn,nNK,KJNM,nMJ -> kJn',(C,W,Rx,W)),dim=2)) / 2  # Terme de trace
+    tr_C = torch.diagonal((C.permute(2, 0, 1) - 1) ** 2, dim1=-2, dim2=-1).sum()
+    tr_term = (torch.einsum('KJn,nNK,KJNM,nMJ -> nKJ',(C,W,Rx,W))).sum() / 2  # Terme de trace
     res = -torch.sum(torch.log(torch.abs(det_C))) / 2  # Premier terme
     res += 0.5 * alpha * tr_C  # Deuxième terme
     res += tr_term  # Troisième terme
     res -= torch.sum(torch.log(torch.abs(det_W)))  # Quatrième terme
-    return res.item()  # Convertir le résultat en un scalaire Python
+    return res  # Convertir le résultat en un scalaire Python
 
 def grad_H_W(W,C,Rx):
     return torch.einsum('bKJN,bNMJ,bJKMm->bNmK',C,W,Rx)

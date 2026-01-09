@@ -8,12 +8,12 @@ from helpers_iva import whiten_data
 ## Problem simumation functions 
 
 
-def make_A(K,N,seed=None,device='cpu'):
+def make_A(K,N,seed=None,device='cpu',dtype=torch.float64):
     if seed == None:
-        A = torch.randn(N,N,K)
+        A = torch.randn(N,N,K,dtype=dtype)
     else:
         torch.manual_seed(seed)
-        A = torch.randn(N,N,K)
+        A = torch.randn(N,N,K,dtype=dtype)
     A = A.to(device)
     return A
 
@@ -39,17 +39,17 @@ def make_A_debug(K,N,seed=None):
 
 
 
-def make_Sigma(K,N,rank,epsilon=1,rho_bounds=[0.4,0.6],lambda_=0.25,seed=None,normalize=False,device='cpu'):
+def make_Sigma(K,N,rank,epsilon=1,rho_bounds=[0.4,0.6],lambda_=0.25,seed=None,normalize=False,device='cpu',dtype=torch.float64):
     
     rng = np.random.default_rng(seed)
     #if seed is not None :
     #    torch.manual_seed(seed)
     
-    J = torch.ones(K,K)
-    I = torch.eye(K)
-    Q = torch.zeros(K,rank,N)
-    mean = torch.zeros(K)
-    Sigma = torch.zeros(K,K,N)
+    J = torch.ones(K,K,dtype=dtype)
+    I = torch.eye(K,dtype=dtype)
+    Q = torch.zeros(K,rank,N,dtype=dtype)
+    mean = torch.zeros(K,dtype=dtype)
+    Sigma = torch.zeros(K,K,N,dtype=dtype)
     if N == 1:
         rho = [torch.mean(rho_bounds)]
     else:
@@ -81,10 +81,10 @@ def make_Sigma(K,N,rank,epsilon=1,rho_bounds=[0.4,0.6],lambda_=0.25,seed=None,no
         #S[n,:,:] = torch.normal(mean,torch.sqrt(Sigma[:,:,n]),(T,K))
     return S """
 
-def make_S(Sigma,T,device='cpu'):
+def make_S(Sigma,T,device='cpu',dtype=torch.float64):
     _,K,N = Sigma.size()
-    S = torch.zeros(N,T,K,device=device)
-    mean = torch.zeros(K,device=device)
+    S = torch.zeros(N,T,K,device=device,dtype=dtype)
+    mean = torch.zeros(K,device=device,dtype=dtype)
     for n in range(N):
         cov_matrix = Sigma[:,:,n]
         mvn = torch.distributions.MultivariateNormal(mean,cov_matrix)
@@ -97,17 +97,20 @@ def make_X(S,A):
     return X
 
 
-def generate_whitened_problem(T,K,N,epsilon=1,rho_bounds=[0.4,0.6],lambda_=0.25,device='cpu'): 
-    A = make_A(K,N)
-    Sigma = make_Sigma(K,N,rank=K+10,epsilon=epsilon,rho_bounds=rho_bounds,lambda_=lambda_,seed=None,normalize=False)
-    S = make_S(Sigma,T)
+def generate_whitened_problem(T,K,N,epsilon=1,rho_bounds=[0.4,0.6],lambda_=0.25,device='cpu',dtype=torch.float64,only_sos=True): 
+    A = make_A(K,N,dtype=dtype)
+    Sigma = make_Sigma(K,N,rank=K+10,epsilon=epsilon,rho_bounds=rho_bounds,lambda_=lambda_,seed=None,normalize=False,dtype=dtype)
+    S = make_S(Sigma,T,dtype=dtype)
     X = make_X(S,A)
     X_,U = whiten_data(X)
     A_ = torch.einsum('nNk,Nvk->nvk',U,A)
     X_ = X_.to(device)
     A_ = A_.to(device)
-    Rx = cov_X(X_)
-    return Rx,A_
+    if not only_sos:
+        return X_,A_
+    else:
+        Rx = cov_X(X_)
+        return Rx,A_
 
 
 def get_metaparameters(rhos,lambdas):
