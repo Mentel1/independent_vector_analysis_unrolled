@@ -21,28 +21,28 @@ lambdas = [lambda_1] #,lambda_2]
 metaparameters_multiparam = get_metaparameters(rhos,lambdas)
 metaparameters_title = 'Case_A' #,'Case_B','Case_C','Case_D','Multi_case','Easy_case','Hard_case']
 
-learning_rate = 0.05
+learning_rate = 0.1
+min_lr = 0.02
 num_epochs = 20
 batch_size = 100
-num_layers = 100
+num_layers = 300
 loss = IVA_loss()
 custom=False
 train_size = 1000
 test_size = 200
-weight_decay = 1e-3
+weight_decay_begin = 1e-2
+weight_decay_end = 1e-6
 factor_lr=0.5
-patience = 3
+patience = 5
 N_updates_W = 5
 
 
+# test_end_to_end = UTitan(dimensions=(N,T,K),metaparameters=metaparameters_multiparam,metaparameters_title=metaparameters_title,train_size=train_size,test_size=test_size,batch_size=batch_size,num_epochs=num_epochs,num_layers=num_layers,lr=learning_rate,patience=patience,weight_decay_begin=weight_decay_begin,weight_decay_end=weight_decay_end,factor_lr=factor_lr,min_lr=min_lr,N_updates_W=N_updates_W,archi='untied',custom=custom,loss_train=loss,training_mode='end_to_end',load=False)
+# test_end_to_end.train()
+# trajectory = test_end_to_end.compute_trajectory()
+# print(trajectory)
 
-
-test_end_to_end = UTitan(dimensions=(N,T,K),metaparameters=metaparameters_multiparam,metaparameters_title=metaparameters_title,train_size=train_size,test_size=test_size,batch_size=batch_size,num_epochs=num_epochs,num_layers=num_layers,lr=learning_rate,patience=patience,weight_decay=weight_decay,factor_lr=factor_lr,N_updates_W=N_updates_W,archi='untied',custom=custom,loss_train=loss,training_mode='end_to_end',load=False)
-test_end_to_end.train()
-trajectory = test_end_to_end.compute_trajectory()
-print(trajectory)
-
-test_greedy = UTitan(dimensions=(N,T,K),metaparameters=metaparameters_multiparam,metaparameters_title=metaparameters_title,train_size=train_size,test_size=test_size,batch_size=batch_size,num_epochs=num_epochs,num_layers=num_layers,lr=learning_rate,N_updates_W=15,archi='untied',custom=custom,loss_train=loss,training_mode='greedy',load=False)
+test_greedy = UTitan(dimensions=(N,T,K),metaparameters=metaparameters_multiparam,metaparameters_title=metaparameters_title,train_size=train_size,test_size=test_size,batch_size=batch_size,num_epochs=num_epochs,num_layers=num_layers,lr=learning_rate,patience=patience,weight_decay_begin=weight_decay_begin,weight_decay_end=weight_decay_end,factor_lr=factor_lr,min_lr=min_lr,N_updates_W=N_updates_W,archi='untied',custom=custom,loss_train=loss,training_mode='greedy',load=False)
 test_greedy.train()
 trajectory = test_greedy.compute_trajectory()
 print(trajectory)

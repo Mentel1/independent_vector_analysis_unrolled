@@ -43,7 +43,7 @@ class IVAGDataset(Dataset):
 
 
 class UTitan:
-    def __init__(self,model_name='UTitan',train_file='training_data',test_file='testing_data',parameters_file='parameters',archi='untied',training_mode='end-to-end',dimensions=(10,10000,10),metaparameters=None,metaparameters_title='Multi_case',train_size=1000,test_size=200,lr=0.1,patience=3,factor_lr=0.5,weight_decay=1e-2,N_updates_W=15,N_updates_C=1,num_epochs=20,loss_train=ISI_loss(),loss_test=ISI_loss(),batch_size=64,num_layers=100,epsilon=1e-12,custom=False,load=True):
+    def __init__(self,model_name='UTitan',train_file='training_data',test_file='testing_data',parameters_file='parameters',archi='untied',training_mode='end-to-end',dimensions=(10,10000,10),metaparameters=None,metaparameters_title='Multi_case',train_size=1000,test_size=200,lr=0.1,patience=3,factor_lr=0.5,min_lr=0.01,weight_decay_begin=1e-2,weight_decay_end=1e-6,N_updates_W=15,N_updates_C=1,num_epochs=20,loss_train=ISI_loss(),loss_test=ISI_loss(),batch_size=64,num_layers=100,epsilon=1e-12,custom=False,load=True):
         # Path information
         self.model_name = model_name
         now = datetime.now()
@@ -81,10 +81,11 @@ class UTitan:
             param_groups.append({'params' : self.model.Layer.parameters(),'lr': self.lr})
         else:
             for i, layer in enumerate(self.model.Layers):
-                layer_lr = self.lr #* (i+1)       
-                param_groups.append({'params': layer.parameters(),'lr': layer_lr})
+                layer_lr = self.lr
+                weight_decay = weight_decay_begin*(i <= 30) + weight_decay_end*(i>30)      
+                param_groups.append({'params': layer.parameters(),'lr': layer_lr,'weight_decay':weight_decay})
         self.optimizer = torch.optim.Adam(param_groups, weight_decay=weight_decay)
-        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer,mode='min',factor=factor_lr,patience=patience,min_lr=1e-2,threshold=1e-6) 
+        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer,mode='min',factor=factor_lr,patience=patience,min_lr=min_lr,threshold=1e-6) 
         self.loss_train = loss_train
         self.loss_test = loss_test
         
@@ -96,12 +97,13 @@ class UTitan:
         self.test_loader = DataLoader(self.testing_set,batch_size=self.batch_size,shuffle=True)
         self.num_batches = math.ceil(self.training_set.size/self.batch_size)
         self.model.train()
-        jisi_train = torch.zeros((self.num_epochs,self.num_batches))
-        jisi_eval = torch.zeros((self.num_epochs,self.num_batches))
+        jisi_train = torch.zeros((self.num_epochs,self.num_batches),device=self.device)
+        jisi_eval = torch.zeros((self.num_epochs,self.num_batches),device=self.device)
         min_eval = float('inf')
         # trains the whole network
         print(f'=================== begin {self.training_mode} training ===================')
         # initialize tracking variables
+        trajectory = self.compute_trajectory(loss=ISI_loss(),save=False,global_step=0)
         for epoch in range(self.num_epochs):
             for batch,(Rxs,Winits,Cinits,As) in enumerate(self.train_loader):
                 global_step = epoch * len(self.train_loader) + batch
@@ -120,15 +122,12 @@ class UTitan:
                 # sets the gradients to zero, performs a backward pass, and updates the weights.
                 self.optimizer.zero_grad()
                 loss_train.backward()
-                trajectory = self.compute_trajectory(loss=ISI_loss(),save=False)
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                 self.optimizer.step()
-                for (Rxs,Winits,Cinits,As) in self.test_loader:
-                    with torch.no_grad():
-                        Ws,Cs,store_W,store_C = self.model(Rxs,Winits,Cinits,active_layers=active_layers)
-                        outputs = {'W':Ws,'C':Cs,'Rx':Rxs,'A':As,'store_W':store_W,'store_C':store_C}
-                        jisi_eval[epoch,batch] += self.loss_test(outputs).item()/self.test_size
+                trajectory = self.compute_trajectory(loss=ISI_loss(),save=False,global_step=global_step+1)
+                jisi_eval[epoch,batch] += trajectory[-1]
                 self.scheduler.step(jisi_eval[epoch,batch])
+                # Idée: calculer pour chaque couche le gain de loss entre l'entrée et la sortie et s'en servir pour faire un scheduler personnalisé par couche en réduisant leur lr si le gain devient négatif + write les images qui montrent les courbes du lr.
                 if jisi_eval[epoch,batch].item() < min_eval:
                     min_eval = jisi_eval[epoch,batch].item()
                     torch.save(self.model.state_dict,self.parameters_path)
@@ -146,7 +145,7 @@ class UTitan:
         torch.save(jisi_train,self.train_loss_path)
         torch.save(jisi_eval,self.test_loss_path)
         
-    def compute_trajectory(self,save=True,loss=ISI_loss(),verbose=0):        
+    def compute_trajectory(self,save=False,loss=ISI_loss(),write=True,global_step=None,verbose=0):        
         trajectory = torch.zeros(self.num_layers,device=self.device)
         self.testing_set = IVAGDataset(data_path=self.test_path,dimensions=self.dimensions,metaparameters=self.metaparameters,size=self.test_size,device=self.device)
         self.test_loader = DataLoader(self.testing_set,batch_size=self.batch_size,shuffle=True)  
@@ -179,6 +178,15 @@ class UTitan:
         if save:
             self.trajectory_path = os.path.join(self.model_path,'trajectory')
             torch.save(trajectory,self.trajectory_path)
+        if write:
+            fig, ax = plt.subplots(figsize=(12, 6))
+            trajectory_array = trajectory.cpu().numpy()
+            ax.plot(range(len(trajectory_array)), trajectory_array, 'gv-',)
+            ax.set_xlabel('Layer number')
+            ax.set_ylabel('jISI score')
+            ax.set_title(f'jISI score across layers - Epoch/Batch {global_step}')
+            ax.grid(True)
+            self.writer.add_figure('Loss/trajectory', fig, global_step)           
         return trajectory
     
     def log_layer_parameters(self,global_step):
@@ -196,7 +204,7 @@ class UTitan:
         ax.grid(True)
         
         # Logger la figure dans TensorBoard
-        self.writer.add_figure('Parameters/gamma_w_by_layer', fig, global_step)
+        self.writer.add_figure('Parameters/gamma_w_by_layer', fig, global_step) 
         plt.close(fig)
 
 

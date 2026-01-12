@@ -17,3 +17,4 @@ notebooks/.ipynb_checkpoints/
 
 # Ignore the results of the experiments
 Result_data/
+runs/
