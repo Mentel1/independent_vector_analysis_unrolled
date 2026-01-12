@@ -229,9 +229,9 @@ class Block(nn.Module):
             self.beta_w = nn.Parameter(torch.zeros(1))
             self.beta_c = nn.Parameter(torch.zeros(1))      
             self.gamma_w = nn.Parameter(torch.empty(1))
-            torch.nn.init.normal_(self.gamma_w,mean=0.5,std=0.1)
+            torch.nn.init.normal_(self.gamma_w,mean=0,std=0.1)
             self.gamma_c = nn.Parameter(torch.empty(1))
-            torch.nn.init.normal_(self.gamma_c,mean=0.5,std=0.1)
+            torch.nn.init.normal_(self.gamma_c,mean=0,std=0.1)
         
           
     def get_coefficients(self,rho_Rx,C,C_prev,W,W_prev):
