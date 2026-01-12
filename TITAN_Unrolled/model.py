@@ -1,5 +1,6 @@
 import torch
 import math
+import matplotlib.pyplot as plt
 from tqdm import tqdm
 from datetime import datetime
 from architecture import *
@@ -8,6 +9,7 @@ from tools import *
 from functions import *
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 import os
 import sys
  
@@ -41,7 +43,7 @@ class IVAGDataset(Dataset):
 
 
 class UTitan:
-    def __init__(self,model_name='UTitan',train_file='training_data',test_file='testing_data',parameters_file='parameters',archi='untied',training_mode='end-to-end',dimensions=(10,10000,10),metaparameters=None,metaparameters_title='Multi_case',train_size=1000,test_size=200,lr=0.1,N_updates_W=15,N_updates_C=1,num_epochs=20,loss_train=ISI_loss(),loss_test=ISI_loss(),batch_size=64,num_layers=100,epsilon=1e-12,custom=False,load=True):
+    def __init__(self,model_name='UTitan',train_file='training_data',test_file='testing_data',parameters_file='parameters',archi='untied',training_mode='end-to-end',dimensions=(10,10000,10),metaparameters=None,metaparameters_title='Multi_case',train_size=1000,test_size=200,lr=0.1,patience=3,factor_lr=0.5,weight_decay=1e-2,N_updates_W=15,N_updates_C=1,num_epochs=20,loss_train=ISI_loss(),loss_test=ISI_loss(),batch_size=64,num_layers=100,epsilon=1e-12,custom=False,load=True):
         # Path information
         self.model_name = model_name
         now = datetime.now()
@@ -49,6 +51,7 @@ class UTitan:
         self.dimensions = dimensions
         self.N,self.T,self.K = dimensions
         self.metaparameters_title=metaparameters_title
+        self.writer = SummaryWriter(f'runs/{self.model_name}_{self.date}')
         # Dataset information
         self.metaparameters = metaparameters
         self.train_size = train_size
@@ -67,7 +70,6 @@ class UTitan:
            self.model.load_state_dict(torch.load(self.parameters_path,weights_only=True))
         self.train_loss_path = os.path.join(self.model_path,'train_loss')
         self.test_loss_path = os.path.join(self.model_path,'test_loss')
-        
         # training information
         self.training_mode = training_mode #'end-to-end' or 'greedy' or 'group_of_layers'
         self.greedy = self.training_mode in ['greedy','group_of_layers']
@@ -81,8 +83,8 @@ class UTitan:
             for i, layer in enumerate(self.model.Layers):
                 layer_lr = self.lr #* (i+1)       
                 param_groups.append({'params': layer.parameters(),'lr': layer_lr})
-        self.optimizer = torch.optim.Adam(param_groups, weight_decay=0)
-        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer,mode='min',factor=0.5,patience=0,min_lr=1e-2,threshold=1e-6) 
+        self.optimizer = torch.optim.Adam(param_groups, weight_decay=weight_decay)
+        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer,mode='min',factor=factor_lr,patience=patience,min_lr=1e-2,threshold=1e-6) 
         self.loss_train = loss_train
         self.loss_test = loss_test
         
@@ -102,6 +104,8 @@ class UTitan:
         # initialize tracking variables
         for epoch in range(self.num_epochs):
             for batch,(Rxs,Winits,Cinits,As) in enumerate(self.train_loader):
+                global_step = epoch * len(self.train_loader) + batch
+                self.log_layer_parameters(global_step)
                 if self.training_mode == 'group_of_layers':
                     active_layers = epoch*(self.num_layers//self.num_epochs),(epoch+1)*(self.num_layers//self.num_epochs)
                 elif self.training_mode == 'one_by_one':
@@ -133,7 +137,12 @@ class UTitan:
                 #     with torch.no_grad():
                 #         for k, v in self.model.state_dict().items():
                 #             v.copy_(best_state[k])
-                print(f'validation loss after epoch {epoch+1} and batch {batch+1} is {jisi_eval[epoch,batch].item()}')     
+                print(f'validation loss after epoch {epoch+1} and batch {batch+1} is {jisi_eval[epoch,batch].item()}')
+                global_step = epoch * len(self.train_loader) + batch
+                self.writer.add_scalar('Loss/train',jisi_train[epoch,batch], global_step)
+                self.writer.add_scalar('Loss/train',jisi_eval[epoch,batch], global_step)
+                self.writer.add_scalar('Learning_rate',self.optimizer.param_groups[0]['lr'], global_step)
+        self.writer.close()  
         torch.save(jisi_train,self.train_loss_path)
         torch.save(jisi_eval,self.test_loss_path)
         
@@ -171,5 +180,24 @@ class UTitan:
             self.trajectory_path = os.path.join(self.model_path,'trajectory')
             torch.save(trajectory,self.trajectory_path)
         return trajectory
+    
+    def log_layer_parameters(self,global_step):
+        # Extraire les valeurs de gamma_w de toutes les couches
+        gamma_w_values = []
+        for i, layer in enumerate(self.model.Layers):
+            gamma_w_values.append(0.3 + 5*(1+layer.tanh(layer.gamma_w)).item())
+        
+        # Créer le graphe
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.plot(range(len(gamma_w_values)), gamma_w_values, 'o-')
+        ax.set_xlabel('Layer number')
+        ax.set_ylabel('gamma_w value')
+        ax.set_title(f'gamma_w across layers - Epoch/Batch {global_step}')
+        ax.grid(True)
+        
+        # Logger la figure dans TensorBoard
+        self.writer.add_figure('Parameters/gamma_w_by_layer', fig, global_step)
+        plt.close(fig)
+
 
   

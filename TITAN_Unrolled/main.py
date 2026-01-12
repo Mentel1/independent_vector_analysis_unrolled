@@ -25,13 +25,19 @@ learning_rate = 0.05
 num_epochs = 20
 batch_size = 100
 num_layers = 100
-loss = ISI_loss()
+loss = IVA_loss()
 custom=False
 train_size = 1000
 test_size = 200
+weight_decay = 1e-3
+factor_lr=0.5
+patience = 3
+N_updates_W = 5
 
 
-test_end_to_end = UTitan(dimensions=(N,T,K),metaparameters=metaparameters_multiparam,metaparameters_title=metaparameters_title,train_size=train_size,test_size=test_size,batch_size=batch_size,num_epochs=num_epochs,num_layers=num_layers,lr=learning_rate,N_updates_W=15,archi='untied',custom=custom,loss_train=loss,training_mode='end_to_end',load=False)
+
+
+test_end_to_end = UTitan(dimensions=(N,T,K),metaparameters=metaparameters_multiparam,metaparameters_title=metaparameters_title,train_size=train_size,test_size=test_size,batch_size=batch_size,num_epochs=num_epochs,num_layers=num_layers,lr=learning_rate,patience=patience,weight_decay=weight_decay,factor_lr=factor_lr,N_updates_W=N_updates_W,archi='untied',custom=custom,loss_train=loss,training_mode='end_to_end',load=False)
 test_end_to_end.train()
 trajectory = test_end_to_end.compute_trajectory()
 print(trajectory)
