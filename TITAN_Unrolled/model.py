@@ -1,5 +1,6 @@
 import torch
 import math
+import random
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from datetime import datetime
@@ -43,169 +44,250 @@ class IVAGDataset(Dataset):
 
 
 class UTitan:
-    def __init__(self,model_name='UTitan',train_file='training_data',test_file='testing_data',parameters_file='parameters',archi='untied',training_mode='end-to-end',dimensions=(10,10000,10),metaparameters=None,metaparameters_title='Multi_case',train_size=1000,test_size=200,lr=0.1,patience=3,factor_lr=0.5,min_lr=0.01,weight_decay_begin=1e-2,weight_decay_end=1e-6,N_updates_W=15,N_updates_C=1,num_epochs=20,loss_train=ISI_loss(),loss_test=ISI_loss(),batch_size=64,num_layers=100,epsilon=1e-12,custom=False,load=True):
-        # Path information
-        self.model_name = model_name
-        now = datetime.now()
-        self.date = now.strftime("%Y-%m-%d_%H-%M")
+    def __init__(self,model_name='UTitan',archi='untied',training_mode='end-to-end',dimensions=(10,10000,10),metaparameters=None,metaparameters_title='Multi_case',train_size=1000,eval_size=200,optimizer=torch.optim.SGD,lr=0.1,weight_decay=0,normalize_derivatives=True,scheduler_mode='StepLR',step_size=3,gamma=0.9,patience=3,factor_lr=0.5,min_lr=0.01,N_updates_W=15,N_updates_C=1,num_epochs=20,loss_train=IVA_loss(),loss_eval=ISI_loss(),batch_size=64,num_layers=100,epsilon=1e-12,custom=False,load=True):
+        
+        # Dataset information
+        self.date = datetime.now().strftime("%Y-%m-%d_%H-%M")
         self.dimensions = dimensions
         self.N,self.T,self.K = dimensions
-        self.metaparameters_title=metaparameters_title
-        self.writer = SummaryWriter(f'runs/{self.model_name}_{self.date}')
-        # Dataset information
+        self.metaparameters_title = metaparameters_title
         self.metaparameters = metaparameters
         self.train_size = train_size
-        self.test_size = test_size
-        self.train_path = f'Result_data/{self.metaparameters_title}/N_{self.N}_K_{self.K}/{train_file}'
-        self.test_path = f'Result_data/{self.metaparameters_title}/N_{self.N}_K_{self.K}/{test_file}'
-        # Model information
+        self.eval_size = eval_size
+        self.dataset_path = f'Result_data/datasets/{self.metaparameters_title}/N_{self.N}_K_{self.K}'
+        os.makedirs(self.dataset_path,exist_ok=True)
+        self.train_set_path = f'{self.dataset_path}/train'
+        self.eval_set_path = f'{self.dataset_path}/eval'
+        
+        # Model architecture information
+        self.model_name = model_name
         self.dtype = torch.cuda.FloatTensor
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.num_layers = num_layers
+        self.archi = archi
+        self.N_updates_W = N_updates_W
+        self.N_updates_C = N_updates_C
+        self.epsilon = epsilon
         self.model = UTitanIVAGModel(N_updates_W,N_updates_C,num_layers=num_layers,epsilon=epsilon,archi=archi,custom=custom,N=self.N,K=self.K).to(self.device)
-        self.model_path = f'Result_data/{self.metaparameters_title}/N_{self.N}_K_{self.K}/{self.model_name}_{archi}_{training_mode}'
+        self.num_param = 3 + 2*(training_mode == "inertial")
+        self.param_names = [name for name,_ in self.model.Layers[0].named_parameters()]
+        
+        # training information
+        self.training_mode = training_mode # 'end-to-end' or 'greedy' or 'group_of_layers' or 'local' or 'one_by_one'
+        if optimizer == torch.optim.Adam:
+            opt_name = 'Adam'
+        elif optimizer == torch.optim.SGD:
+            if normalize_derivatives:
+                opt_name = 'SGD_norm'
+            else:
+                opt_name = 'SGD'
+        self.scheduler_mode = scheduler_mode
+        self.normalize_derivatives = normalize_derivatives
+        self.is_greedy = self.training_mode in ['greedy','group_of_layers']
+        self.lr = lr
+        self.factor_lr = factor_lr
+        self.min_lr = min_lr
+        self.num_epochs = num_epochs
+        self.batch_size = batch_size
+        if self.training_mode == 'local':
+            self.optimizers = []
+            self.schedulers = []
+            for i, layer in enumerate(self.model.Layers):
+                self.optimizers.append(optimizer(self.model.Layers[i].parameters(),lr=self.lr,weight_decay=weight_decay))
+                if scheduler_mode == 'ReduceLROnPlateau':
+                    self.schedulers.append(torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizers[i],mode='min',factor=factor_lr,patience=patience,min_lr=min_lr,threshold=1e-6))
+                elif scheduler_mode == 'StepLR':
+                    self.schedulers.append(torch.optim.lr_scheduler.StepLR(self.optimizers[i],step_size=step_size,gamma=gamma))
+        else:
+            self.optimizer = optimizer(self.model.parameters(),lr=self.lr,weight_decay=weight_decay)
+            if scheduler_mode == 'ReduceLROnPlateau':
+                self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer,mode='min',factor=factor_lr,patience=patience,min_lr=min_lr,threshold=1e-6)
+            elif scheduler_mode == 'StepLR':
+                self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer,step_size=step_size,gamma=gamma)           
+        self.loss_train = loss_train
+        self.loss_eval = loss_eval
+        self.writer = SummaryWriter(f'runs/{self.model_name}_{archi}_{training_mode}_{opt_name}_{self.metaparameters_title}_N_{self.N}_K_{self.K}')
+        
+        # Model path information
+        self.model_path = f'Result_data/models/{self.metaparameters_title}/N_{self.N}_K_{self.K}/{self.model_name}_{archi}_{training_mode}_{opt_name}'
         os.makedirs(self.model_path,exist_ok=True)
-        self.parameters_path = os.path.join(self.model_path,parameters_file)
+        self.parameters_path = os.path.join(self.model_path,'parameters')
         if os.path.exists(self.parameters_path) & load:
            self.model.load_state_dict(torch.load(self.parameters_path,weights_only=True))
         self.train_loss_path = os.path.join(self.model_path,'train_loss')
-        self.test_loss_path = os.path.join(self.model_path,'test_loss')
-        # training information
-        self.training_mode = training_mode #'end-to-end' or 'greedy' or 'group_of_layers'
-        self.greedy = self.training_mode in ['greedy','group_of_layers']
-        self.lr = lr
-        self.num_epochs = num_epochs
-        self.batch_size = batch_size
-        param_groups = []
-        if archi == 'tied':
-            param_groups.append({'params' : self.model.Layer.parameters(),'lr': self.lr})
-        else:
-            for i, layer in enumerate(self.model.Layers):
-                layer_lr = self.lr
-                weight_decay = weight_decay_begin*(i <= 30) + weight_decay_end*(i>30)      
-                param_groups.append({'params': layer.parameters(),'lr': layer_lr,'weight_decay':weight_decay})
-        self.optimizer = torch.optim.Adam(param_groups, weight_decay=weight_decay)
-        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer,mode='min',factor=factor_lr,patience=patience,min_lr=min_lr,threshold=1e-6) 
-        self.loss_train = loss_train
-        self.loss_test = loss_test
+        self.eval_trajectories_path = os.path.join(self.model_path,'eval_trajectories')
+        self.param_values_path = os.path.join(self.model_path,'param_values')
+        self.grad_values_path = os.path.join(self.model_path,'grad_values')
+        self.lr_values_path = os.path.join(self.model_path,'lr_values')
+
+        # load or create datasets and data loaders 
+        self.training_set = IVAGDataset(data_path=self.train_set_path,dimensions=self.dimensions,metaparameters=self.metaparameters,size=self.train_size,device=self.device)
+        self.eval_set = IVAGDataset(data_path=self.eval_set_path,dimensions=self.dimensions,metaparameters=self.metaparameters,size=self.eval_size,device=self.device)
+        self.training_loader = DataLoader(self.training_set,batch_size=self.batch_size,shuffle=True)
+        self.eval_loader = DataLoader(self.eval_set,batch_size=self.batch_size,shuffle=True)
+        self.num_batches = math.ceil(self.training_set.size/self.batch_size)
+
+        # records
+        self.train_loss_record = torch.zeros((self.num_epochs,self.num_batches))
+        self.eval_trajectories_record_jisi = torch.zeros((self.num_epochs,self.num_batches,self.num_layers+1))
+        self.eval_trajectories_record_jiva = torch.zeros((self.num_epochs,self.num_batches,self.num_layers+1))
+        self.param_values_records = torch.zeros((self.num_epochs,self.num_batches,self.num_layers,self.num_param))
+        self.grad_values_records = torch.zeros((self.num_epochs,self.num_batches,self.num_layers,self.num_param))
+        self.lr_values_records = torch.zeros(self.num_epochs,self.num_batches,self.num_layers)
+        self.min_eval = float('inf')
         
     def train(self):
-        # load or create datasets and data loaders
-        self.training_set = IVAGDataset(data_path=self.train_path,dimensions=self.dimensions,metaparameters=self.metaparameters,size=self.train_size,device=self.device)
-        self.testing_set = IVAGDataset(data_path=self.test_path,dimensions=self.dimensions,metaparameters=self.metaparameters,size=self.test_size,device=self.device)
-        self.train_loader = DataLoader(self.training_set,batch_size=self.batch_size,shuffle=True)
-        self.test_loader = DataLoader(self.testing_set,batch_size=self.batch_size,shuffle=True)
-        self.num_batches = math.ceil(self.training_set.size/self.batch_size)
-        self.model.train()
-        jisi_train = torch.zeros((self.num_epochs,self.num_batches),device=self.device)
-        jisi_eval = torch.zeros((self.num_epochs,self.num_batches),device=self.device)
-        min_eval = float('inf')
-        # trains the whole network
         print(f'=================== begin {self.training_mode} training ===================')
         # initialize tracking variables
-        trajectory = self.compute_trajectory(loss=ISI_loss(),save=False,global_step=0)
+        self.model.train()
+        self.nan_detected = False
         for epoch in range(self.num_epochs):
-            for batch,(Rxs,Winits,Cinits,As) in enumerate(self.train_loader):
-                global_step = epoch * len(self.train_loader) + batch
-                self.log_layer_parameters(global_step)
-                if self.training_mode == 'group_of_layers':
-                    active_layers = epoch*(self.num_layers//self.num_epochs),(epoch+1)*(self.num_layers//self.num_epochs)
-                elif self.training_mode == 'one_by_one':
-                    active_layers = (epoch,epoch)
+            for batch,(Rx,Winit,Cinit,A) in enumerate(self.training_loader):
+                global_step = epoch * len(self.training_loader) + batch
+                self.log_layer_parameters(epoch,batch,global_step)
+                outputs = {'W':Winit,'C':Cinit,'Rx':Rx,'A':A}
+                B = Winit.shape[0]
+                if self.training_mode == 'local':
+                    self.local_training(Winit,Cinit,Rx,A,epoch,batch)
                 else:
-                    active_layers = (0,self.num_layers)
-                Ws,Cs,store_W,store_C = self.model(Rxs,Winits,Cinits,active_layers=active_layers)
-                outputs = {'W':Ws,'C':Cs,'Rx':Rxs,'A':As,'store_W':store_W,'store_C':store_C}
-                loss_train = self.loss_train(outputs,greedy=self.greedy) #,emphasis=()
-                jisi_train[epoch,batch] = loss_train.item()/self.train_size
-                sys.stdout.write(f'\r Epoch {epoch+1}/{self.num_epochs}, batch {batch+1}/{self.num_batches}, loss: {loss_train.item():.4f} \n')
-                # sets the gradients to zero, performs a backward pass, and updates the weights.
-                self.optimizer.zero_grad()
-                loss_train.backward()
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                self.optimizer.step()
-                trajectory = self.compute_trajectory(loss=ISI_loss(),save=False,global_step=global_step+1)
-                jisi_eval[epoch,batch] += trajectory[-1]
-                self.scheduler.step(jisi_eval[epoch,batch])
-                # Idée: calculer pour chaque couche le gain de loss entre l'entrée et la sortie et s'en servir pour faire un scheduler personnalisé par couche en réduisant leur lr si le gain devient négatif + write les images qui montrent les courbes du lr.
-                if jisi_eval[epoch,batch].item() < min_eval:
-                    min_eval = jisi_eval[epoch,batch].item()
+                    if self.training_mode == 'group_of_layers':
+                        learning_layers = epoch*(self.num_layers//self.num_epochs),(epoch+1)*(self.num_layers//self.num_epochs)
+                    elif self.training_mode == 'one_by_one':
+                        learning_layers = (epoch,epoch)
+                    else: 
+                        #training_mode is 'greedy' or 'end-to-end'
+                        learning_layers = (0,self.num_layers)
+                    W,C,store_W,store_C = self.model(Rx,Winit,Cinit,learning_layers=learning_layers)
+                    outputs = {'W':W,'C':C,'Rx':Rx,'A':A,'store_W':store_W,'store_C':store_C}
+                    loss_train_value = self.loss_train(outputs,greedy=self.is_greedy)               
+                    self.optimizer.zero_grad()
+                    loss_train_value.backward()
+                    if self.normalize_derivatives:
+                        for p in self.model.parameters():
+                            if p.grad is not None:
+                                p.grad /= (torch.abs(p.grad) + 1e-12)
+                    torch.nn.utils.clip_grad_value_(self.model.parameters(), clip_value=1.0)
+                    self.optimizer.step()
+                    self.train_loss_record[epoch,batch] = loss_train_value/B
+                self.writer.add_scalar('Loss/train',self.train_loss_record[epoch,batch], global_step)
+                sys.stdout.write(f'\r Epoch {epoch+1}/{self.num_epochs}, batch {batch+1}/{self.num_batches}, loss: {self.train_loss_record[epoch,batch]:.4f} \n') 
+                self.compute_trajectory(self.eval_loader,epoch=epoch,batch=batch)
+                if torch.isnan(self.eval_trajectories_record_jiva).any() or torch.isnan(self.eval_trajectories_record_jisi).any():
+                    self.nan_detected = True
+                    break     
+                if self.eval_trajectories_record_jiva[epoch,batch,-1].item() < self.min_eval:
+                    self.min_eval = self.eval_trajectories_record_jiva[epoch,batch,-1].item()
                     torch.save(self.model.state_dict,self.parameters_path)
-                #     best_state = {k: v.detach().clone() for k, v in self.model.state_dict().items()}
-                # else:
-                #     with torch.no_grad():
-                #         for k, v in self.model.state_dict().items():
-                #             v.copy_(best_state[k])
-                print(f'validation loss after epoch {epoch+1} and batch {batch+1} is {jisi_eval[epoch,batch].item()}')
-                global_step = epoch * len(self.train_loader) + batch
-                self.writer.add_scalar('Loss/train',jisi_train[epoch,batch], global_step)
-                self.writer.add_scalar('Loss/train',jisi_eval[epoch,batch], global_step)
-                self.writer.add_scalar('Learning_rate',self.optimizer.param_groups[0]['lr'], global_step)
+                print(f'jisi loss after epoch {epoch+1} and batch {batch+1} is {self.eval_trajectories_record_jisi[epoch,batch,-1].item()}')
+                if self.training_mode != 'local':
+                    self.writer.add_scalar('LR', self.optimizer.param_groups[0]['lr'], global_step)
+                    if self.scheduler_mode=='ReduceLROnPlateau':
+                        self.scheduler.step(self.eval_trajectories_record_jiva[epoch,batch,-1].item())
+                    if self.scheduler_mode=='StepLR':
+                        self.scheduler.step()
+                self.writer.add_scalar('Loss/jisi-eval',self.eval_trajectories_record_jisi[epoch,batch,-1], global_step)
+                self.writer.add_scalar('Loss/jiva-eval',self.eval_trajectories_record_jiva[epoch,batch,-1], global_step)
+            if epoch >= 3 and torch.mean(self.eval_trajectories_record_jiva[epoch,:,-1]).item() > torch.mean(self.eval_trajectories_record_jiva[epoch-1,:,-1]).item() or self.nan_detected:
+                torch.save((epoch,batch),self.model_path+'/ending_step')
+                break
         self.writer.close()  
-        torch.save(jisi_train,self.train_loss_path)
-        torch.save(jisi_eval,self.test_loss_path)
+        torch.save(self.train_loss_record,self.train_loss_path)
+        torch.save(self.eval_trajectories_record_jiva,self.eval_trajectories_path+'_jiva')
+        torch.save(self.eval_trajectories_record_jisi,self.eval_trajectories_path+'_jisi')
+        torch.save(self.param_values_records,self.param_values_path)
+        torch.save(self.grad_values_records,self.grad_values_path)
+        torch.save(self.lr_values_records,self.lr_values_path)
+        torch.save(self.nan_detected,self.model_path+'/finished_with_nan')
+   
+    def local_training(self,Winit,Cinit,Rx,A,epoch,batch):
+        B,N,_,K = Winit.shape
+        rho_Rx = spectral_norm_extracted(Rx,K,N)  
+        W,C,W_prev,C_prev = Winit.clone(),Cinit.clone(),Winit.clone(),Cinit.clone()
+        outputs = {'W':W,'C':C,'Rx':Rx,'A':A}
+        for i,layer in enumerate(self.model.Layers):
+            W,C,W_prev,C_prev = self.model.Layers[i](Rx,rho_Rx,W,W_prev,C,C_prev,i)
+            outputs = {'W':W,'C':C,'Rx':Rx,'A':A}
+            loss_train_value = self.loss_train(outputs,greedy=False)
+            self.optimizers[i].zero_grad()
+            loss_train_value.backward()
+            if self.normalize_derivatives:
+                for p in layer.parameters():
+                    if p.grad is not None:
+                        p.grad /= (torch.abs(p.grad) + 1e-12)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(),max_norm=1.0)
+            self.optimizers[i].step()
+            self.schedulers[i].step()
+            W = W.detach() #.requires_grad_(True)
+            C = C.detach() #.requires_grad_(True) 
+            W_prev = W_prev.detach() #.requires_grad_(True)
+            C_prev = C_prev.detach() #.requires_grad_(True)
+        self.train_loss_record[epoch,batch] = loss_train_value.item()/B
         
-    def compute_trajectory(self,save=False,loss=ISI_loss(),write=True,global_step=None,verbose=0):        
-        trajectory = torch.zeros(self.num_layers,device=self.device)
-        self.testing_set = IVAGDataset(data_path=self.test_path,dimensions=self.dimensions,metaparameters=self.metaparameters,size=self.test_size,device=self.device)
-        self.test_loader = DataLoader(self.testing_set,batch_size=self.batch_size,shuffle=True)  
-        for batch,(Rxs,Winits,Cinits,As) in enumerate(self.test_loader):
-            with torch.no_grad():
-                Ws,Cs,store_W,store_C = self.model(Rxs,Winits,Cinits)
-                for i in range(self.num_layers):
-                    W = store_W[i,:,:,:,:]
-                    C = store_C[i,:,:,:,:]
-                    outputs = {'W':W,'C':C,'Rx':Rxs,'A':As,'store_W':store_W,'store_C':store_C}
-                    trajectory[i] = trajectory[i] + loss(outputs)/self.test_size
-                    if batch == len(self.test_loader) - 1 and verbose >= 1:
-                        print(f"\n--- Layer {i} ---")
-                        print(f"Output score: {trajectory[i]}")
-                        for name, param in [
-                            ("alpha", self.model.Layers[i].alpha),
-                            # ("beta_w", self.model.Layers[i].beta_w),
-                            # ("beta_c", self.model.Layers[i].beta_c),
-                            ("gamma_w", self.model.Layers[i].gamma_w),
-                            ("gamma_c", self.model.Layers[i].gamma_c)]:
-                            if name == 'alpha':
-                                value = self.model.Layers[i].soft(param.data)
-                            else:
-                                value = 0.3 + 5*(self.model.Layers[i].tanh(param.data)+1)
-                            if param.grad == None:
-                                gradient = 'not computed'
-                            else:
-                                gradient = param.grad.item()
-                            print(f"{name}:  Value = {value.item()}, Gradient = {gradient}")
-        if save:
-            self.trajectory_path = os.path.join(self.model_path,'trajectory')
-            torch.save(trajectory,self.trajectory_path)
+    def compute_trajectory(self,loader=None,write=True,epoch=None,batch=None,record_layer_improvements=False):
+        global_step = epoch * len(self.training_loader) + batch + 1
+        isi_loss = ISI_loss()
+        iva_loss = IVA_loss()
+        if loader == None:
+            eval_set = IVAGDataset(data_path=self.eval_path,dimensions=self.dimensions,metaparameters=self.metaparameters,size=self.eval_size,device=self.device)
+            loader = DataLoader(eval_set,batch_size=self.batch_size,shuffle=True)
+        for _,(Rx,Winit,Cinit,A) in enumerate(loader):
+            with torch.no_grad():                        
+                W,C,store_W,store_C = self.model(Rx,Winit,Cinit)
+                for i in range(self.num_layers+1):
+                    outputs = {'W':store_W[i,:,:,:,:],'C':store_C[i,:,:,:,:],'Rx':Rx,'A':A,'store_W':store_W,'store_C':store_C}
+                    self.eval_trajectories_record_jiva[epoch,batch,i] = self.eval_trajectories_record_jiva[epoch,batch,i] + iva_loss(outputs)/self.eval_size
+                    self.eval_trajectories_record_jisi[epoch,batch,i] = self.eval_trajectories_record_jisi[epoch,batch,i] + isi_loss(outputs)/self.eval_size
         if write:
-            fig, ax = plt.subplots(figsize=(12, 6))
-            trajectory_array = trajectory.cpu().numpy()
-            ax.plot(range(len(trajectory_array)), trajectory_array, 'gv-',)
-            ax.set_xlabel('Layer number')
-            ax.set_ylabel('jISI score')
-            ax.set_title(f'jISI score across layers - Epoch/Batch {global_step}')
-            ax.grid(True)
-            self.writer.add_figure('Loss/trajectory', fig, global_step)           
-        return trajectory
-    
-    def log_layer_parameters(self,global_step):
-        # Extraire les valeurs de gamma_w de toutes les couches
-        gamma_w_values = []
-        for i, layer in enumerate(self.model.Layers):
-            gamma_w_values.append(0.3 + 5*(1+layer.tanh(layer.gamma_w)).item())
+            self.plot_trajectory(self.eval_trajectories_record_jiva[epoch,batch,:],'eval_jiva','IVA cost',epoch,batch,'Trajectories',global_step,color='b')
+            self.plot_trajectory(self.eval_trajectories_record_jisi[epoch,batch,:],'eval_jisi','jISI score',epoch,batch,'Trajectories',global_step,color='g')
+        if record_layer_improvements:
+            layer_improvements = self.eval_trajectories_record_jiva[epoch,batch,:-1] - trajectory_jiva[epoch,batch,1:]       
+            return layer_improvements
+             
+    def log_layer_parameters(self,epoch,batch,global_step):
+        for i,layer in enumerate(self.model.Layers):
+            for j,param in enumerate(layer.parameters()):
+                if 'beta' not in self.param_names[j] or self.training_mode == "inertial":
+                    self.param_values_records[epoch,batch,i,j] = self.model.Layers[i].soft(param).item()
+                    if param.grad != None:
+                        self.grad_values_records[epoch,batch,i,j] = param.grad.item()
+                else:
+                    break
+            if self.training_mode=='local': 
+                self.lr_values_records[epoch,batch,i] = self.optimizers[i].param_groups[0]['lr']
+            else:
+                self.lr_values_records[epoch,batch,i] = self.optimizer.param_groups[0]['lr']
+
+        # Créer les graphes
+        for idx in range(self.num_param):
+            name = self.param_names[idx]
+            self.plot_trajectory(self.param_values_records[epoch,batch,:,idx],name,f'Values of {name}',epoch,batch,'Parameters',global_step,color=plt.cm.tab10(idx),marker='s')
+            self.plot_trajectory(self.grad_values_records[epoch,batch,:,idx],'grad '+ name,f'Gradients of {name}',epoch,batch,'Parameters_gradients',global_step,color=plt.cm.tab10(idx),marker='h')
+        self.plot_trajectory(self.lr_values_records[epoch,batch,:],'Learning_rates','learning rates',epoch,batch,'Training_parameters',global_step,color='k',marker='o')
         
-        # Créer le graphe
-        fig, ax = plt.subplots(figsize=(12, 6))
-        ax.plot(range(len(gamma_w_values)), gamma_w_values, 'o-')
+    def select_num_layers(self,loader=None,tol=1e-5):
+        trajectory = self.eval_trajectory(loader,save=False,loss=ISI_loss(),write=False)
+        lim = trajectory[-1]
+        for L in range(len(trajectory)):
+            if trajectory[L] < lim + tol:
+                return L
+            
+    def shorten_model(self,loader=None,tol=1e-5,save=True):
+        L = self.select_num_layers(loader,tol)
+        if self.archi != 'tied':
+            newmodel = self.model.Layers[:L]
+        newmodel.num_layers = L
+        if save:
+            torch.save(newmodel.state_dict,self.parameters_path)
+
+        
+    def plot_trajectory(self,data,name,ylabel,epoch,batch,folder,global_step,color='g',marker='v'):
+        fig,ax = plt.subplots(figsize=(12, 6))
+        data_array = data.cpu().numpy()
+        ax.plot(range(len(data_array)),data_array,color=color,marker=marker,linestyle='-')
         ax.set_xlabel('Layer number')
-        ax.set_ylabel('gamma_w value')
-        ax.set_title(f'gamma_w across layers - Epoch/Batch {global_step}')
+        ax.set_ylabel(ylabel)
+        ax.set_title(f'{ylabel} across layers - Epoch {epoch+1}/Batch {batch+1}')
         ax.grid(True)
-        
-        # Logger la figure dans TensorBoard
-        self.writer.add_figure('Parameters/gamma_w_by_layer', fig, global_step) 
-        plt.close(fig)
-
-
+        self.writer.add_figure(f'{folder}/{name}',fig,global_step)
   

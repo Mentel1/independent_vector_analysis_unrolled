@@ -74,15 +74,13 @@ def lipschitz(C,rho_Rx):
     return spectral_norm(C)*rho_Rx
 
 
-def joint_isi_batch(W,A,log=False):
+def joint_isi_batch(W,A):
     _,N,_,_ = W.shape
     G_bar = torch.sum(torch.abs(torch.einsum('bnNk,bNvk->bnvk',W,A)),dim=3)
     term1 = torch.sum(torch.sum(G_bar / torch.max(G_bar,dim=2,keepdim=True)[0],dim=2) - 1,dim=1)
     G_bar = G_bar.moveaxis(1,2)
     term2 = torch.sum(torch.sum(G_bar / torch.max(G_bar,dim=2,keepdim=True)[0],dim=2) - 1,dim=1)
     score =  term1 + term2
-    if log:
-        score = torch.log(score)
     return torch.sum(score) / (2 * N * (N - 1))
 
 

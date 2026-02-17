@@ -39,26 +39,6 @@ def spectral_norm_extracted_torch(Rx,K,N):
 def smallest_singular_value(C):
     return torch.min(torch.svd(C.permute(2, 0, 1))[1])
 
-def blocks_to_full(W_blocks, K, N):
-    W_full = torch.zeros(N, N, K,device='cuda')
-    for k, W_k in enumerate(W_blocks):
-        begin = 0
-        for W_kl in W_k:
-            n_l = W_kl.size(0)
-            W_full[begin:begin+n_l, begin:begin+n_l, k] = W_kl
-            begin += n_l
-    return W_full
-
-def full_to_blocks(W_full, idx_W, K):
-    W_blocks = []
-    for k in range(K):
-        W_k = []
-        L_k = len(idx_W[k])
-        for l in range(L_k):
-            W_kl = W_full[idx_W[k][l], idx_W[k][l], k]
-            W_k.append(W_kl)
-        W_blocks.append(W_k)
-    return W_blocks
 
 # def quick_block_diag(W):
 #     N, N, K = W.shape
@@ -97,31 +77,14 @@ def decrease(cost, verbose=0):
                     break
         return False
     
-def diff_criteria_torch(A, B, mode='full'):
-    if mode == 'full':
-        if A.shape != B.shape:
-            raise ValueError("A and B must be of the same dimension")
-        elif A.ndim < 2 or A.ndim > 3:
-            raise ValueError("Only tensors of order 2 or 3 are accepted")
-        res = 0
-        D = A - B
+def diff_criteria_torch(A,B):
+    if A.shape != B.shape:
+        raise ValueError("A and B must be of the same dimension")
+    elif A.ndim < 2 or A.ndim > 3:
+        raise ValueError("Only tensors of order 2 or 3 are accepted")
+    res = 0
+    D = A - B
+    max_norm = torch.max(torch.sum(D ** 2, dim=1))
+    return max_norm / (2 * A.size(0))
 
-        max_norm = torch.max(torch.sum(D ** 2, dim=1))
-        return max_norm / (2 * A.size(0))
-
-    elif mode == 'blocks':
-        res = 0
-        if len(A) != len(B):
-            raise ValueError("A and B must be of the same dimension")
-        for k, A_k in enumerate(A):
-            B_k = B[k]
-            if len(A_k) != len(B_k):
-                raise ValueError("A_k and B_k must have the same blocks")
-            for l, A_kl in enumerate(A_k):
-                B_kl = B_k[l]
-                if A_kl.shape != B_kl.shape:
-                    raise ValueError("A_k and B_k must have the same blocks")
-                N_kl, _ = A_kl.shape
-                for n in range(N_kl):
-                    res = max(res, torch.dot(A_kl[n, :], B_kl[n, :]) / (2 * N_kl))
-        return res
+  

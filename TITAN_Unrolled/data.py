@@ -1,8 +1,8 @@
 import torch
 import numpy as np
-from tools import *
+from .tools import *
 from torch.utils.data import Dataset
-from helpers_iva import whiten_data
+from .helpers_iva import whiten_data
 
 
 ## Problem simumation functions 
@@ -36,8 +36,6 @@ def make_A_debug(K,N,seed=None):
         return None
     
     return A
-
-
 
 def make_Sigma(K,N,rank,epsilon=1,rho_bounds=[0.4,0.6],lambda_=0.25,seed=None,normalize=False,device='cpu',dtype=torch.float64):
     

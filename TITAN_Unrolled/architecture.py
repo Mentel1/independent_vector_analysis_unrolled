@@ -17,9 +17,9 @@ Classes
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from functions import *
-from tools import *
-from data import *
+from .functions import *
+from .tools import *
+from .data import *
 from torch.utils.checkpoint import checkpoint
 
 class ISI_loss():
@@ -32,8 +32,8 @@ class ISI_loss():
     def __init__(self): 
         super(ISI_loss,self).__init__()
         
-    def __call__(self,outputs,greedy=False,log=False):
-        W_out,store_W,label = outputs['W'],outputs['store_W'],outputs['A']
+    def __call__(self,outputs,greedy=False):
+        W,store_W,A = outputs['W'],outputs['store_W'],outputs['A']
         num_layers = store_W.shape[0]
         """
         Computes the training loss.
@@ -46,13 +46,13 @@ class ISI_loss():
             (torch.FloatTensor): mean ISI Score of the batch,size 1 
         """
         if greedy:
-            loss = torch.zeros(1,device = W_out.device)
+            loss = torch.zeros(1,device=W.device)
             for i in range(num_layers):
                 W = store_W[i,:,:,:,:]
-                loss += joint_isi_batch(W,label,log=log)/num_layers
+                loss += joint_isi_batch(W,A)/num_layers
             return loss
         else:
-            return joint_isi_batch(W_out,label,log=log)
+            return joint_isi_batch(W,A)
 
 
 class IVA_loss():
@@ -60,9 +60,10 @@ class IVA_loss():
         super(IVA_loss,self).__init__()
         
     def __call__(self,outputs,greedy=False): # A modifier pour faire le calcul sur tout le batch (W et C sont de dim B*_*_*_)
-        Ws,Cs,Rx,store_W,store_C = outputs['W'],outputs['C'],outputs['Rx'],outputs['store_W'],outputs['store_C']
-        res = torch.zeros(1,device=Ws.device)
+        W,C,Rx = outputs['W'],outputs['C'],outputs['Rx']
+        res = torch.zeros(1,device=W.device)
         if greedy:
+            store_W,store_C = outputs['store_W'],outputs['store_C']
             for i in range(store_W.shape[0]):
                 W,C = store_W[i,:,:,:,:],store_C[i,:,:,:,:]
                 det_C = torch.det(C.permute(0,3,1,2))  # Déterminant de C
@@ -74,14 +75,20 @@ class IVA_loss():
                 res += tr_term  # Troisième terme
                 res -= torch.sum(torch.log(torch.abs(det_W)))  # Quatrième terme
         else:
-            det_C = torch.det(Cs.permute(0,3,1,2))  # Déterminant de C
-            det_W = torch.det(Ws.permute(0,3,1,2))  # Déterminant de W
-            tr_C = torch.diagonal((Cs.permute(0,3,1,2) - 1) ** 2, dim1=-2, dim2=-1).sum()
-            tr_term = (torch.einsum('bKJn,bnNK,bKJNM,bnMJ -> bnKJ',(Cs,Ws,Rx,Ws))).sum() / 2  # Terme de trace
-            res -= torch.sum(torch.log(torch.abs(det_C))) / 2  # Premier terme
+            det_C = torch.det(C.permute(0,3,1,2))  # Déterminant de C
+            term1 = torch.sum(torch.log(torch.abs(det_C)))
+            # print(f'sum log det_C is computed and equals to {term1}')
+            det_W = torch.det(W.permute(0,3,1,2))  # Déterminant de W
+            term4 = torch.sum(torch.log(torch.abs(det_W)))
+            # print(f'sum log |det_W| is computed and equals to {term4}')
+            tr_C = torch.diagonal((C.permute(0,3,1,2) - 1) ** 2, dim1=-2, dim2=-1).sum()
+            # print(f'tr_C is computed and equals to {tr_C}')
+            tr_term = (torch.einsum('bKJn,bnNK,bKJNM,bnMJ -> bnKJ',(C,W,Rx,W))).sum() / 2  # Terme de trace
+            # print(f'tr_term is computed and equals to {tr_term}')
+            res -= term1/ 2  # Premier terme
             res += 0.5 * tr_C  # Deuxième terme
             res += tr_term  # Troisième terme
-            res -= torch.sum(torch.log(torch.abs(det_W)))  # Quatrième terme
+            res -= term4  # Quatrième terme
         return res
 
 
@@ -225,13 +232,13 @@ class Block(nn.Module):
             output_size = 5
             self.get_coeff_module = Custom_param(input_size=total_dim,hidden_size=128,output_size=output_size)
         else:
-            self.alpha = nn.Parameter(torch.zeros(1))
-            self.beta_w = nn.Parameter(torch.zeros(1))
-            self.beta_c = nn.Parameter(torch.zeros(1))      
+            self.alpha = nn.Parameter(torch.zeros(1))     
             self.gamma_w = nn.Parameter(torch.empty(1))
-            torch.nn.init.normal_(self.gamma_w,mean=0,std=0.1)
+            torch.nn.init.normal_(self.gamma_w,mean=1,std=0.1)
             self.gamma_c = nn.Parameter(torch.empty(1))
-            torch.nn.init.normal_(self.gamma_c,mean=0,std=0.1)
+            torch.nn.init.normal_(self.gamma_c,mean=1,std=0.1)
+            self.beta_w = nn.Parameter(torch.zeros(1))
+            self.beta_c = nn.Parameter(torch.zeros(1)) 
         
           
     def get_coefficients(self,rho_Rx,C,C_prev,W,W_prev):
@@ -240,14 +247,14 @@ class Block(nn.Module):
         else:
             batch_size = W.shape[0]
             alpha = self.soft(self.alpha)*torch.ones(batch_size,device=W.device)
-            beta_w = self.soft(self.beta_w-1)*torch.ones(batch_size,device=W.device)
-            beta_c = self.soft(self.beta_c-1)*torch.ones(batch_size,device=W.device)
-            gamma_w = 0.3 + 5*(self.tanh(self.gamma_w)+1)
-            gamma_c = 0.3 + 5*(self.tanh(self.gamma_c)+1)   
+            gamma_w = self.soft(self.gamma_w)
+            gamma_c = self.soft(self.gamma_c)
+            beta_w = self.soft(self.beta_w)*torch.ones(batch_size,device=W.device)/10
+            beta_c = self.soft(self.beta_c)*torch.ones(batch_size,device=W.device)/10
             L_w = lipschitz(C,rho_Rx)
             c_w = gamma_w/L_w  
             c_c = gamma_c/alpha
-            return torch.stack([alpha, c_w, c_c, beta_w, beta_c])   
+            return torch.stack([alpha,c_w,c_c,beta_w,beta_c])   
 
     def forward(self,Rx,rho_Rx,W,W_prev,C,C_prev,i):
         alpha,c_w,c_c,beta_w,beta_c=self.get_coefficients(rho_Rx,C,C_prev,W,W_prev)
@@ -261,36 +268,34 @@ class UTitanIVAGModel(nn.Module):
 
     def __init__(self,N_updates_W,N_updates_C,num_layers,epsilon,archi='untied',custom=False,N=10,K=10):
         super().__init__()
-        self.inertial = archi == 'inertial'
+        self.inertial = (archi == 'inertial')
+        self.tied = (archi == 'tied')
         self.num_layers = num_layers
-        if archi == 'tied':
-            self.tied = True
-            self.Layer = Block(N_updates_W,N_updates_C,epsilon,inertial=self.inertial,custom=custom,N=N,K=K)
+        if self.tied:
+            self.Layer = Block(N_updates_W,N_updates_C,epsilon,inertial=False,custom=custom,N=N,K=K)
         else:
-            self.tied = False
             self.Layers = nn.ModuleList([Block(N_updates_W,N_updates_C,epsilon,inertial=self.inertial,custom=custom,N=N,K=K) for _ in range(num_layers)])
         
 
-    def forward(self,Rx,Winit,Cinit,active_layers=(0,float('inf'))):
-        first_layer,last_layer = active_layers
+    def forward(self,Rx,Winit,Cinit,learning_layers=(0,float('inf'))):
+        first_layer,last_layer=learning_layers
         B,N,_,K = Winit.shape
         rho_Rx = spectral_norm_extracted(Rx,K,N)
-        W = Winit
-        C = Cinit
-        W_prev = W.clone()
-        C_prev = C.clone()
+        W,C = Winit,Cinit
+        W_prev,C_prev = W.clone(),C.clone()
         num_iter = self.num_layers
-        store_W = torch.zeros((num_iter,B,N,N,K),device=W.device)
-        store_C = torch.zeros((num_iter,B,K,K,N),device=W.device)
         if first_layer == last_layer:
             num_iter = first_layer+1
+        store_W = torch.zeros((num_iter+1,B,N,N,K),device=W.device)
+        store_C = torch.zeros((num_iter+1,B,K,K,N),device=W.device)
+        store_W[0,:,:,:,:],store_C[0,:,:,:,:] = W,C
         for i in range(num_iter):
             layer = self.Layer if self.tied else self.Layers[i]  
             if i < first_layer or i > last_layer:
                 with torch.no_grad():
-                    W, C, W_prev, C_prev = checkpoint(layer, Rx, rho_Rx, W, W_prev, C, C_prev, i, use_reentrant=False)
+                    W,C,W_prev,C_prev = checkpoint(layer,Rx,rho_Rx,W,W_prev,C,C_prev,i,use_reentrant=False)
             else:
-                W, C, W_prev, C_prev = checkpoint(layer, Rx, rho_Rx, W, W_prev, C, C_prev, i, use_reentrant=False)
-            store_W[i,:,:,:,:] = W
-            store_C[i,:,:,:,:] = C             
+                W,C,W_prev,C_prev = checkpoint(layer,Rx,rho_Rx,W,W_prev,C,C_prev,i,use_reentrant=False)
+            store_W[i+1,:,:,:,:] = W
+            store_C[i+1,:,:,:,:] = C             
         return W,C,store_W,store_C
