@@ -4,10 +4,10 @@ import random
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from datetime import datetime
-from architecture import *
-from data import *
-from tools import *
-from functions import *
+from .architecture import *
+from .data import *
+from .tools import *
+from .functions import *
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -69,7 +69,7 @@ class UTitan:
         self.N_updates_C = N_updates_C
         self.epsilon = epsilon
         self.model = UTitanIVAGModel(N_updates_W,N_updates_C,num_layers=num_layers,epsilon=epsilon,archi=archi,custom=custom,N=self.N,K=self.K).to(self.device)
-        self.num_param = 3 + 2*(training_mode == "inertial")
+        self.num_param = 3 + 2*("inertial" in training_mode)
         self.param_names = [name for name,_ in self.model.Layers[0].named_parameters()]
         
         # training information
@@ -157,9 +157,15 @@ class UTitan:
                     else: 
                         #training_mode is 'greedy' or 'end-to-end'
                         learning_layers = (0,self.num_layers)
-                    W,C,store_W,store_C = self.model(Rx,Winit,Cinit,learning_layers=learning_layers)
-                    outputs = {'W':W,'C':C,'Rx':Rx,'A':A,'store_W':store_W,'store_C':store_C}
-                    loss_train_value = self.loss_train(outputs,greedy=self.is_greedy)               
+                    # W,C,store_W,store_C = self.model(Rx,Winit,Cinit,learning_layers=learning_layers)
+                    
+                    # outputs = {'W':W,'C':C,'Rx':Rx,'A':A,'store_W':store_W,'store_C':store_C}
+                    # loss_train_value = self.loss_train(outputs,greedy=self.is_greedy)
+                    outputs = self.model(Rx,Winit,Cinit,learning_layers=learning_layers,track_cost=True,greedy=self.is_greedy)
+                    if self.is_greedy:
+                        loss_train_value = torch.mean(outputs['cost'])
+                    else:
+                        loss_train_value = outputs['cost'][-1]
                     self.optimizer.zero_grad()
                     loss_train_value.backward()
                     if self.normalize_derivatives:
@@ -232,11 +238,15 @@ class UTitan:
             loader = DataLoader(eval_set,batch_size=self.batch_size,shuffle=True)
         for _,(Rx,Winit,Cinit,A) in enumerate(loader):
             with torch.no_grad():                        
-                W,C,store_W,store_C = self.model(Rx,Winit,Cinit)
-                for i in range(self.num_layers+1):
-                    outputs = {'W':store_W[i,:,:,:,:],'C':store_C[i,:,:,:,:],'Rx':Rx,'A':A,'store_W':store_W,'store_C':store_C}
-                    self.eval_trajectories_record_jiva[epoch,batch,i] = self.eval_trajectories_record_jiva[epoch,batch,i] + iva_loss(outputs)/self.eval_size
-                    self.eval_trajectories_record_jisi[epoch,batch,i] = self.eval_trajectories_record_jisi[epoch,batch,i] + isi_loss(outputs)/self.eval_size
+                # W,C,store_W,store_C = self.model(Rx,Winit,Cinit)
+                outputs = self.model(Rx,Winit,Cinit,track_jisi=True,A=A,track_cost=True)
+                self.eval_trajectories_record_jiva[epoch,batch,:] += outputs['cost']/self.eval_size
+                self.eval_trajectories_record_jisi[epoch,batch,:] += outputs['jisi']/self.eval_size
+                # for i in range(self.num_layers+1):
+                    
+                    # outputs = {'W':store_W[i,:,:,:,:],'C':store_C[i,:,:,:,:],'Rx':Rx,'A':A,'store_W':store_W,'store_C':store_C}
+                    # self.eval_trajectories_record_jiva[epoch,batch,i] = self.eval_trajectories_record_jiva[epoch,batch,i] + iva_loss(outputs)/self.eval_size
+                    # self.eval_trajectories_record_jisi[epoch,batch,i] = self.eval_trajectories_record_jisi[epoch,batch,i] + isi_loss(outputs)/self.eval_size
         if write:
             self.plot_trajectory(self.eval_trajectories_record_jiva[epoch,batch,:],'eval_jiva','IVA cost',epoch,batch,'Trajectories',global_step,color='b')
             self.plot_trajectory(self.eval_trajectories_record_jisi[epoch,batch,:],'eval_jisi','jISI score',epoch,batch,'Trajectories',global_step,color='g')
@@ -249,6 +259,8 @@ class UTitan:
             for j,param in enumerate(layer.parameters()):
                 if 'beta' not in self.param_names[j] or self.training_mode == "inertial":
                     self.param_values_records[epoch,batch,i,j] = self.model.Layers[i].soft(param).item()
+                    if 'beta' in self.param_names[j]:
+                        self.param_values_records[epoch,batch,i,j] *= 0.1
                     if param.grad != None:
                         self.grad_values_records[epoch,batch,i,j] = param.grad.item()
                 else:
@@ -280,7 +292,6 @@ class UTitan:
         if save:
             torch.save(newmodel.state_dict,self.parameters_path)
 
-        
     def plot_trajectory(self,data,name,ylabel,epoch,batch,folder,global_step,color='g',marker='v'):
         fig,ax = plt.subplots(figsize=(12, 6))
         data_array = data.cpu().numpy()

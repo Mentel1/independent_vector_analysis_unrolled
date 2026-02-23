@@ -1,25 +1,28 @@
 import torch
 import numpy as np
-from tools import *
-from data import *
-from initializations import _jbss_sos,_cca
+from .tools import *
+from .data import *
+from .initializations import _jbss_sos,_cca
 
 def cost_iva_g_reg(W,C,Rx,alpha):
-    det_C = torch.det(C.permute(2,0,1))  # Déterminant de C
-    det_W = torch.det(W.permute(2,0,1))  # Déterminant de W
-    tr_C = torch.diagonal((C.permute(2, 0, 1) - 1) ** 2, dim1=-2, dim2=-1).sum()
-    tr_term = (torch.einsum('KJn,nNK,KJNM,nMJ -> nKJ',(C,W,Rx,W))).sum() / 2  # Terme de trace
-    res = -torch.sum(torch.log(torch.abs(det_C))) / 2  # Premier terme
-    res += 0.5 * alpha * tr_C  # Deuxième terme
+    res = torch.zeros(1,device=W.device)
+    det_C = torch.det(C.permute(0,3,1,2))  # Déterminant de C
+    det_W = torch.det(W.permute(0,3,1,2))  # Déterminant de W
+    tr_C = torch.diagonal((C.permute(0,3,1,2) - 1) ** 2, dim1=-2, dim2=-1).sum()
+    WRx = torch.einsum('bnNK,bKJNM->bnKJM', W, Rx)  # (b,n,K,J,M)
+    WRxW = torch.einsum('bnKJM,bnMJ->bnKJ', WRx, W)  # (b,n,K,J)
+    tr_term = torch.einsum('bKJn,bnKJ->b', C, WRxW).sum() / 2
+    # tr_term = (torch.einsum('bKJn,bnNK,bKJNM,bnMJ -> bnKJ',(C,W,Rx,W))).sum() / 2  # Terme de trace
+    res -= torch.sum(torch.log(torch.abs(det_C))) / 2  # Premier terme
+    res += 0.5 * alpha* tr_C  # Deuxième terme
     res += tr_term  # Troisième terme
-    res -= torch.sum(torch.log(torch.abs(det_W)))  # Quatrième terme
+    res -= torch.sum(torch.log(torch.abs(det_W)))
     return res  # Convertir le résultat en un scalaire Python
 
 def grad_H_W(W,C,Rx):
     return torch.einsum('bKJN,bNMJ,bJKMm->bNmK',C,W,Rx)
 
-
-def prox_f(W, c_w):
+def prox_f(W,c_w):
     W_perm = W.permute(0, 3, 1, 2)
     U, s, Vh = torch.linalg.svd(W_perm)
     c_w = c_w.view(-1, 1, 1)
@@ -58,7 +61,9 @@ def prox_g(C,c_c,epsilon):
 
 def grad_H_C_reg(W,C,Rx,alpha):
     _, _, _, K = W.size()
-    grad = sym(torch.einsum('bnNK,bKJNM,bnMJ->bKJn',W,Rx,W))/2
+    WRx = torch.einsum('bnNK,bKJNM->bnKJM',W,Rx)
+    grad = sym(torch.einsum('bnKJM,bnMJ->bKJn',WRx,W))/2
+    # grad = sym(torch.einsum('bnNK,bKJNM,bnMJ->bKJn',W,Rx,W))/2
     indices = torch.arange(K).to(W.device)
     grad = grad.clone()
     alpha = alpha.view(-1, 1, 1)

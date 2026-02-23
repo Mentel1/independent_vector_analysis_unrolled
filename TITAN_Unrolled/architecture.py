@@ -17,6 +17,7 @@ Classes
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import traceback
 from .functions import *
 from .tools import *
 from .data import *
@@ -268,16 +269,16 @@ class UTitanIVAGModel(nn.Module):
 
     def __init__(self,N_updates_W,N_updates_C,num_layers,epsilon,archi='untied',custom=False,N=10,K=10):
         super().__init__()
-        self.inertial = (archi == 'inertial')
-        self.tied = (archi == 'tied')
+        self.inertial = ('inertial' in archi)
+        self.tied = ('untied' not in archi)
         self.num_layers = num_layers
         if self.tied:
-            self.Layer = Block(N_updates_W,N_updates_C,epsilon,inertial=False,custom=custom,N=N,K=K)
+            self.Layer = Block(N_updates_W,N_updates_C,epsilon,inertial=self.inertial,custom=custom,N=N,K=K)
         else:
             self.Layers = nn.ModuleList([Block(N_updates_W,N_updates_C,epsilon,inertial=self.inertial,custom=custom,N=N,K=K) for _ in range(num_layers)])
         
 
-    def forward(self,Rx,Winit,Cinit,learning_layers=(0,float('inf'))):
+    def forward(self,Rx,Winit,Cinit,learning_layers=(0,float('inf')),track_jisi=False,A=None,track_cost=False,greedy=False):
         first_layer,last_layer=learning_layers
         B,N,_,K = Winit.shape
         rho_Rx = spectral_norm_extracted(Rx,K,N)
@@ -286,16 +287,44 @@ class UTitanIVAGModel(nn.Module):
         num_iter = self.num_layers
         if first_layer == last_layer:
             num_iter = first_layer+1
-        store_W = torch.zeros((num_iter+1,B,N,N,K),device=W.device)
-        store_C = torch.zeros((num_iter+1,B,K,K,N),device=W.device)
-        store_W[0,:,:,:,:],store_C[0,:,:,:,:] = W,C
+        # store_W = torch.zeros((num_iter+1,B,N,N,K),device=W.device)
+        # store_C = torch.zeros((num_iter+1,B,K,K,N),device=W.device)
+        # store_W[0,:,:,:,:],store_C[0,:,:,:,:] = W,C
+        outputs = {'cost':torch.full((num_iter + 1,), float('inf')),'jisi':torch.full((num_iter + 1,), float('inf'))}
+        if greedy:
+            outputs['loss'] = 0
+        if track_cost:     
+            outputs['cost'][0] = cost_iva_g_reg(W,C,Rx,alpha=1)
+        if track_jisi:
+            outputs['jisi'][0] = joint_isi_batch(W,A)
         for i in range(num_iter):
-            layer = self.Layer if self.tied else self.Layers[i]  
-            if i < first_layer or i > last_layer:
-                with torch.no_grad():
+            try:
+                layer = self.Layer if self.tied else self.Layers[i]  
+                if i < first_layer or i > last_layer:
+                    with torch.no_grad():
+                        W,C,W_prev,C_prev = checkpoint(layer,Rx,rho_Rx,W,W_prev,C,C_prev,i,use_reentrant=False)
+                else:
                     W,C,W_prev,C_prev = checkpoint(layer,Rx,rho_Rx,W,W_prev,C,C_prev,i,use_reentrant=False)
-            else:
-                W,C,W_prev,C_prev = checkpoint(layer,Rx,rho_Rx,W,W_prev,C,C_prev,i,use_reentrant=False)
-            store_W[i+1,:,:,:,:] = W
-            store_C[i+1,:,:,:,:] = C             
-        return W,C,store_W,store_C
+                if track_cost or greedy:
+                    if not greedy and i < num_iter - 1:
+                        with torch.no_grad():
+                            outputs['cost'][i+1] = cost_iva_g_reg(W,C,Rx,alpha=1)
+                    else:
+                        outputs['cost'][i+1] = cost_iva_g_reg(W,C,Rx,alpha=1)
+                if greedy:
+                    outputs['loss'] += outputs['cost'][i+1]
+                if track_jisi:
+                    with torch.no_grad():
+                        outputs['jisi'][i+1] = joint_isi_batch(W,A)
+                # store_W[i+1,:,:,:,:] = W
+                # store_C[i+1,:,:,:,:] = C
+            except Exception as e:
+                print(f'❌ ERROR AT LAYER {i}/{num_iter}')
+                print(f'Error type: {type(e).__name__}')
+                print(f'Error message: {str(e)}')
+                traceback.print_exc()  # Affiche le traceback complet
+                raise  # ← IMPORTANT : Relance l'exception pour arrêter l'exécution
+        outputs['W'] = W
+        outputs['C'] = C
+        return outputs
+        # return W,C,store_W,store_C
