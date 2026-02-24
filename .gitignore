@@ -16,5 +16,5 @@ notebooks/.ipynb_checkpoints/
 /.venv/
 
 # Ignore the results of the experiments
-Result_data/
+Result_data/datasets
 runs/
