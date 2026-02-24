@@ -18,6 +18,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import traceback
+from contextlib import nullcontext
 from .functions import *
 from .tools import *
 from .data import *
@@ -287,9 +288,6 @@ class UTitanIVAGModel(nn.Module):
         num_iter = self.num_layers
         if first_layer == last_layer:
             num_iter = first_layer+1
-        # store_W = torch.zeros((num_iter+1,B,N,N,K),device=W.device)
-        # store_C = torch.zeros((num_iter+1,B,K,K,N),device=W.device)
-        # store_W[0,:,:,:,:],store_C[0,:,:,:,:] = W,C
         outputs = {'cost':torch.full((num_iter + 1,), float('inf')),'jisi':torch.full((num_iter + 1,), float('inf'))}
         if greedy:
             outputs['loss'] = 0
@@ -298,33 +296,19 @@ class UTitanIVAGModel(nn.Module):
         if track_jisi:
             outputs['jisi'][0] = joint_isi_batch(W,A)
         for i in range(num_iter):
-            try:
-                layer = self.Layer if self.tied else self.Layers[i]  
-                if i < first_layer or i > last_layer:
-                    with torch.no_grad():
-                        W,C,W_prev,C_prev = checkpoint(layer,Rx,rho_Rx,W,W_prev,C,C_prev,i,use_reentrant=False)
-                else:
-                    W,C,W_prev,C_prev = checkpoint(layer,Rx,rho_Rx,W,W_prev,C,C_prev,i,use_reentrant=False)
-                if track_cost or greedy:
-                    if not greedy and i < num_iter - 1:
-                        with torch.no_grad():
-                            outputs['cost'][i+1] = cost_iva_g_reg(W,C,Rx,alpha=1)
-                    else:
-                        outputs['cost'][i+1] = cost_iva_g_reg(W,C,Rx,alpha=1)
-                if greedy:
-                    outputs['loss'] += outputs['cost'][i+1]
-                if track_jisi:
-                    with torch.no_grad():
-                        outputs['jisi'][i+1] = joint_isi_batch(W,A)
-                # store_W[i+1,:,:,:,:] = W
-                # store_C[i+1,:,:,:,:] = C
-            except Exception as e:
-                print(f'❌ ERROR AT LAYER {i}/{num_iter}')
-                print(f'Error type: {type(e).__name__}')
-                print(f'Error message: {str(e)}')
-                traceback.print_exc()  # Affiche le traceback complet
-                raise  # ← IMPORTANT : Relance l'exception pour arrêter l'exécution
+            layer = self.Layer if self.tied else self.Layers[i]  
+            with torch.no_grad() if (i < first_layer or i > last_layer) else nullcontext():
+                W, C, W_prev, C_prev = checkpoint(layer, Rx, rho_Rx, W, W_prev, C, C_prev, i, use_reentrant=False)
+            if track_cost or greedy:
+                # print(f"Layer {i}: greedy={greedy}, track_cost={track_cost}, using no_grad={not greedy and i < num_iter - 1}")
+                with torch.no_grad() if (not greedy and i < num_iter - 1) else nullcontext():
+                    outputs['cost'][i+1] = cost_iva_g_reg(W,C,Rx,alpha=1)
+                # print(f"  Cost computed, requires_grad={outputs['cost'][i+1].requires_grad if hasattr(outputs['cost'][i+1], 'requires_grad') else 'N/A'}")
+            if greedy:
+                outputs['loss'] += outputs['cost'][i+1]
+            if track_jisi:
+                with torch.no_grad():
+                    outputs['jisi'][i+1] = joint_isi_batch(W,A)
         outputs['W'] = W
         outputs['C'] = C
         return outputs
-        # return W,C,store_W,store_C

@@ -44,7 +44,7 @@ class IVAGDataset(Dataset):
 
 
 class UTitan:
-    def __init__(self,model_name='UTitan',archi='untied',training_mode='end-to-end',dimensions=(10,10000,10),metaparameters=None,metaparameters_title='Multi_case',train_size=1000,eval_size=200,optimizer=torch.optim.SGD,lr=0.1,weight_decay=0,normalize_derivatives=True,scheduler_mode='StepLR',step_size=3,gamma=0.9,patience=3,factor_lr=0.5,min_lr=0.01,N_updates_W=15,N_updates_C=1,num_epochs=20,loss_train=IVA_loss(),loss_eval=ISI_loss(),batch_size=64,num_layers=100,epsilon=1e-12,custom=False,load=True):
+    def __init__(self,model_name='UTitan',archi='untied',training_mode='end-to-end',dimensions=(10,10000,10),metaparameters=None,metaparameters_title='Multi_case',train_size=1000,eval_size=200,optimizer=torch.optim.SGD,lr=1,weight_decay=0,gradient_processing='normalize',scheduler_mode='StepLR',step_size=3,gamma=0.9,patience=3,factor_lr=0.5,min_lr=0.01,N_updates_W=15,N_updates_C=1,num_epochs=20,loss_train=IVA_loss(),loss_eval=ISI_loss(),batch_size=64,num_layers=100,epsilon=1e-12,custom=False,load=True):
         
         # Dataset information
         self.date = datetime.now().strftime("%Y-%m-%d_%H-%M")
@@ -77,12 +77,10 @@ class UTitan:
         if optimizer == torch.optim.Adam:
             opt_name = 'Adam'
         elif optimizer == torch.optim.SGD:
-            if normalize_derivatives:
-                opt_name = 'SGD_norm'
-            else:
-                opt_name = 'SGD'
+            opt_name = 'SGD'
+        opt_name = opt_name + '_' + gradient_processing
         self.scheduler_mode = scheduler_mode
-        self.normalize_derivatives = normalize_derivatives
+        self.gradient_processing = gradient_processing
         self.is_greedy = self.training_mode in ['greedy','group_of_layers']
         self.lr = lr
         self.factor_lr = factor_lr
@@ -144,7 +142,8 @@ class UTitan:
         for epoch in range(self.num_epochs):
             for batch,(Rx,Winit,Cinit,A) in enumerate(self.training_loader):
                 global_step = epoch * len(self.training_loader) + batch
-                self.log_layer_parameters(epoch,batch,global_step)
+                if 'untied' in self.archi:
+                    self.log_layer_parameters(epoch,batch,global_step)
                 outputs = {'W':Winit,'C':Cinit,'Rx':Rx,'A':A}
                 B = Winit.shape[0]
                 if self.training_mode == 'local':
@@ -157,10 +156,6 @@ class UTitan:
                     else: 
                         #training_mode is 'greedy' or 'end-to-end'
                         learning_layers = (0,self.num_layers)
-                    # W,C,store_W,store_C = self.model(Rx,Winit,Cinit,learning_layers=learning_layers)
-                    
-                    # outputs = {'W':W,'C':C,'Rx':Rx,'A':A,'store_W':store_W,'store_C':store_C}
-                    # loss_train_value = self.loss_train(outputs,greedy=self.is_greedy)
                     outputs = self.model(Rx,Winit,Cinit,learning_layers=learning_layers,track_cost=True,greedy=self.is_greedy)
                     if self.is_greedy:
                         loss_train_value = torch.mean(outputs['cost'])
@@ -168,11 +163,12 @@ class UTitan:
                         loss_train_value = outputs['cost'][-1]
                     self.optimizer.zero_grad()
                     loss_train_value.backward()
-                    if self.normalize_derivatives:
+                    if self.gradient_processing == 'normalize':
                         for p in self.model.parameters():
                             if p.grad is not None:
                                 p.grad /= (torch.abs(p.grad) + 1e-12)
-                    torch.nn.utils.clip_grad_value_(self.model.parameters(), clip_value=1.0)
+                    elif self.gradient_processing == 'clip':
+                        torch.nn.utils.clip_grad_value_(self.model.parameters(), clip_value=1.0)
                     self.optimizer.step()
                     self.train_loss_record[epoch,batch] = loss_train_value/B
                 self.writer.add_scalar('Loss/train',self.train_loss_record[epoch,batch], global_step)
@@ -238,15 +234,9 @@ class UTitan:
             loader = DataLoader(eval_set,batch_size=self.batch_size,shuffle=True)
         for _,(Rx,Winit,Cinit,A) in enumerate(loader):
             with torch.no_grad():                        
-                # W,C,store_W,store_C = self.model(Rx,Winit,Cinit)
                 outputs = self.model(Rx,Winit,Cinit,track_jisi=True,A=A,track_cost=True)
                 self.eval_trajectories_record_jiva[epoch,batch,:] += outputs['cost']/self.eval_size
                 self.eval_trajectories_record_jisi[epoch,batch,:] += outputs['jisi']/self.eval_size
-                # for i in range(self.num_layers+1):
-                    
-                    # outputs = {'W':store_W[i,:,:,:,:],'C':store_C[i,:,:,:,:],'Rx':Rx,'A':A,'store_W':store_W,'store_C':store_C}
-                    # self.eval_trajectories_record_jiva[epoch,batch,i] = self.eval_trajectories_record_jiva[epoch,batch,i] + iva_loss(outputs)/self.eval_size
-                    # self.eval_trajectories_record_jisi[epoch,batch,i] = self.eval_trajectories_record_jisi[epoch,batch,i] + isi_loss(outputs)/self.eval_size
         if write:
             self.plot_trajectory(self.eval_trajectories_record_jiva[epoch,batch,:],'eval_jiva','IVA cost',epoch,batch,'Trajectories',global_step,color='b')
             self.plot_trajectory(self.eval_trajectories_record_jisi[epoch,batch,:],'eval_jisi','jISI score',epoch,batch,'Trajectories',global_step,color='g')
@@ -257,7 +247,7 @@ class UTitan:
     def log_layer_parameters(self,epoch,batch,global_step):
         for i,layer in enumerate(self.model.Layers):
             for j,param in enumerate(layer.parameters()):
-                if 'beta' not in self.param_names[j] or self.training_mode == "inertial":
+                if 'beta' not in self.param_names[j] or "inertial" in self.training_mode:
                     self.param_values_records[epoch,batch,i,j] = self.model.Layers[i].soft(param).item()
                     if 'beta' in self.param_names[j]:
                         self.param_values_records[epoch,batch,i,j] *= 0.1
@@ -265,10 +255,8 @@ class UTitan:
                         self.grad_values_records[epoch,batch,i,j] = param.grad.item()
                 else:
                     break
-            if self.training_mode=='local': 
-                self.lr_values_records[epoch,batch,i] = self.optimizers[i].param_groups[0]['lr']
-            else:
-                self.lr_values_records[epoch,batch,i] = self.optimizer.param_groups[0]['lr']
+            optimizer = self.optimizers[i] if self.training_mode == 'local' else self.optimizer
+            self.lr_values_records[epoch,batch,i] = optimizer.param_groups[0]['lr']
 
         # Créer les graphes
         for idx in range(self.num_param):

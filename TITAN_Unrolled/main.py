@@ -51,19 +51,20 @@ patience = 1
 factor_lr = 0.8
 min_lr = 0.01
 # parameters for ReduceLROnPlateau
-gamma = 0.9
+gamma = 0.8
 step_size = 5
 
 optimizers = [torch.optim.SGD,torch.optim.Adam]
+gradient_processings = ['raw','clip','normalize']
 archis = ['tied','untied','inertial']
-training_modes = ['greedy','end-to-end','local',] #'end-to-end','greedy','local'] #'group-of-layers','layer-by-layer']
+training_modes = ['end-to-end','local'] #'end-to-end','greedy','local'] #'group-of-layers','layer-by-layer']
 
 archi = 'untied'
 training_mode = 'end-to-end'
 
 for training_mode in training_modes:
-    for optimizer in optimizers:
-        test = UTitan(dimensions=(N,T,K),metaparameters=metaparameters_multiparam,metaparameters_title=metaparameters_title,train_size=train_size,eval_size=eval_size,batch_size=batch_size,num_epochs=num_epochs,num_layers=num_layers,optimizer=optimizer,lr=learning_rate,weight_decay=weight_decay,normalize_derivatives=normalize_derivatives1,scheduler_mode=scheduler_mode,step_size=step_size,gamma=gamma,patience=patience,factor_lr=factor_lr,min_lr=min_lr,N_updates_W=N_updates_W,archi=archi,custom=custom,loss_train=loss,training_mode=training_mode,load=False)
+    for optimizer,gradient_processing in [(torch.optim.SGD,'normalize'),(torch.optim.Adam,'raw')]:
+        test = UTitan(dimensions=(N,T,K),metaparameters=metaparameters_multiparam,metaparameters_title=metaparameters_title,train_size=train_size,eval_size=eval_size,batch_size=batch_size,num_epochs=num_epochs,num_layers=num_layers,optimizer=optimizer,lr=learning_rate,weight_decay=weight_decay,gradient_processing=gradient_processing,scheduler_mode=scheduler_mode,step_size=step_size,gamma=gamma,patience=patience,factor_lr=factor_lr,min_lr=min_lr,N_updates_W=N_updates_W,archi=archi,custom=custom,loss_train=loss,training_mode=training_mode,load=False)
         test.train()
     
     
