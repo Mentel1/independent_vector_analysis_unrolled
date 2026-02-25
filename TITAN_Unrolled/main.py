@@ -56,10 +56,10 @@ step_size = 5
 
 optimizers = [torch.optim.SGD,torch.optim.Adam]
 gradient_processings = ['raw','clip','normalize']
-archis = ['tied','untied','inertial']
-training_modes = ['end-to-end','local'] #'end-to-end','greedy','local'] #'group-of-layers','layer-by-layer']
+archis = ['tied','untied','inertial-tied','inertial-untied']
+training_modes = ['local','end-to-end'] #'end-to-end','greedy','local'] #'group-of-layers','layer-by-layer']
 
-archi = 'untied'
+archi = 'tied'
 training_mode = 'end-to-end'
 
 for training_mode in training_modes:

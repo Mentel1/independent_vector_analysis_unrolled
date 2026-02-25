@@ -87,7 +87,7 @@ class UTitan:
         self.min_lr = min_lr
         self.num_epochs = num_epochs
         self.batch_size = batch_size
-        if self.training_mode == 'local':
+        if self.training_mode == 'local' and not self.model.tied:
             self.optimizers = []
             self.schedulers = []
             for i, layer in enumerate(self.model.Layers):
@@ -142,7 +142,7 @@ class UTitan:
         for epoch in range(self.num_epochs):
             for batch,(Rx,Winit,Cinit,A) in enumerate(self.training_loader):
                 global_step = epoch * len(self.training_loader) + batch
-                if 'untied' in self.archi:
+                if not self.model.tied:
                     self.log_layer_parameters(epoch,batch,global_step)
                 outputs = {'W':Winit,'C':Cinit,'Rx':Rx,'A':A}
                 B = Winit.shape[0]
@@ -207,18 +207,22 @@ class UTitan:
         W,C,W_prev,C_prev = Winit.clone(),Cinit.clone(),Winit.clone(),Cinit.clone()
         outputs = {'W':W,'C':C,'Rx':Rx,'A':A}
         for i,layer in enumerate(self.model.Layers):
-            W,C,W_prev,C_prev = self.model.Layers[i](Rx,rho_Rx,W,W_prev,C,C_prev,i)
+            layer = self.model.Layer if self.tied else self.model.Layers[i]
+            optimizer = self.optimizer if self.tied else self.optimizers[i]
+            scheduler = self.scheduler if self.tied else self.schedulers[i]
+            W,C,W_prev,C_prev = layer(Rx,rho_Rx,W,W_prev,C,C_prev,i)
             outputs = {'W':W,'C':C,'Rx':Rx,'A':A}
             loss_train_value = self.loss_train(outputs,greedy=False)
-            self.optimizers[i].zero_grad()
+            optimizer.zero_grad()
             loss_train_value.backward()
-            if self.normalize_derivatives:
-                for p in layer.parameters():
+            if self.gradient_processing == 'normalize':
+                for p in self.model.parameters():
                     if p.grad is not None:
                         p.grad /= (torch.abs(p.grad) + 1e-12)
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(),max_norm=1.0)
-            self.optimizers[i].step()
-            self.schedulers[i].step()
+            elif self.gradient_processing == 'clip':
+                torch.nn.utils.clip_grad_value_(self.model.parameters(), clip_value=1.0)
+            optimizer.step()
+            scheduler.step()
             W = W.detach() #.requires_grad_(True)
             C = C.detach() #.requires_grad_(True) 
             W_prev = W_prev.detach() #.requires_grad_(True)
@@ -227,8 +231,6 @@ class UTitan:
         
     def compute_trajectory(self,loader=None,write=True,epoch=None,batch=None,record_layer_improvements=False):
         global_step = epoch * len(self.training_loader) + batch + 1
-        isi_loss = ISI_loss()
-        iva_loss = IVA_loss()
         if loader == None:
             eval_set = IVAGDataset(data_path=self.eval_path,dimensions=self.dimensions,metaparameters=self.metaparameters,size=self.eval_size,device=self.device)
             loader = DataLoader(eval_set,batch_size=self.batch_size,shuffle=True)
@@ -241,7 +243,7 @@ class UTitan:
             self.plot_trajectory(self.eval_trajectories_record_jiva[epoch,batch,:],'eval_jiva','IVA cost',epoch,batch,'Trajectories',global_step,color='b')
             self.plot_trajectory(self.eval_trajectories_record_jisi[epoch,batch,:],'eval_jisi','jISI score',epoch,batch,'Trajectories',global_step,color='g')
         if record_layer_improvements:
-            layer_improvements = self.eval_trajectories_record_jiva[epoch,batch,:-1] - trajectory_jiva[epoch,batch,1:]       
+            layer_improvements = self.eval_trajectories_record_jiva[epoch,batch,:-1] - self.eval_trajectories_record_jiva[epoch,batch,1:]       
             return layer_improvements
              
     def log_layer_parameters(self,epoch,batch,global_step):
@@ -255,7 +257,7 @@ class UTitan:
                         self.grad_values_records[epoch,batch,i,j] = param.grad.item()
                 else:
                     break
-            optimizer = self.optimizers[i] if self.training_mode == 'local' else self.optimizer
+            optimizer = self.optimizers[i] if (self.training_mode == 'local' and self.model.tied) else self.optimizer
             self.lr_values_records[epoch,batch,i] = optimizer.param_groups[0]['lr']
 
         # Créer les graphes
@@ -274,13 +276,13 @@ class UTitan:
             
     def shorten_model(self,loader=None,tol=1e-5,save=True):
         L = self.select_num_layers(loader,tol)
-        if self.archi != 'tied':
+        if not self.model.tied:
             newmodel = self.model.Layers[:L]
         newmodel.num_layers = L
         if save:
-            torch.save(newmodel.state_dict,self.parameters_path)
+            torch.save(newmodel.state_dict,self.parameters_path + '_shorten')
 
-    def plot_trajectory(self,data,name,ylabel,epoch,batch,folder,global_step,color='g',marker='v'):
+    def plot_trajectory(self,data,name,ylabel,epoch,batch,folder,global_step,color='g',marker=''):
         fig,ax = plt.subplots(figsize=(12, 6))
         data_array = data.cpu().numpy()
         ax.plot(range(len(data_array)),data_array,color=color,marker=marker,linestyle='-')
