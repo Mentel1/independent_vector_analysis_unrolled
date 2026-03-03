@@ -70,7 +70,8 @@ class UTitan:
         self.epsilon = epsilon
         self.model = UTitanIVAGModel(N_updates_W,N_updates_C,num_layers=num_layers,epsilon=epsilon,archi=archi,custom=custom,N=self.N,K=self.K).to(self.device)
         self.num_param = 3 + 2*("inertial" in training_mode)
-        self.param_names = [name for name,_ in self.model.Layers[0].named_parameters()]
+        layer = self.model.Layer if self.model.tied else self.model.Layers[0] 
+        self.param_names = [name for name,_ in layer.named_parameters()]
         
         # training information
         self.training_mode = training_mode # 'end-to-end' or 'greedy' or 'group_of_layers' or 'local' or 'one_by_one'
@@ -206,10 +207,10 @@ class UTitan:
         rho_Rx = spectral_norm_extracted(Rx,K,N)  
         W,C,W_prev,C_prev = Winit.clone(),Cinit.clone(),Winit.clone(),Cinit.clone()
         outputs = {'W':W,'C':C,'Rx':Rx,'A':A}
-        for i,layer in enumerate(self.model.Layers):
-            layer = self.model.Layer if self.tied else self.model.Layers[i]
-            optimizer = self.optimizer if self.tied else self.optimizers[i]
-            scheduler = self.scheduler if self.tied else self.schedulers[i]
+        for i in range(self.num_layers):
+            layer = self.model.Layer if self.model.tied else self.model.Layers[i]
+            optimizer = self.optimizer if self.model.tied else self.optimizers[i]
+            scheduler = self.scheduler if self.model.tied else self.schedulers[i]
             W,C,W_prev,C_prev = layer(Rx,rho_Rx,W,W_prev,C,C_prev,i)
             outputs = {'W':W,'C':C,'Rx':Rx,'A':A}
             loss_train_value = self.loss_train(outputs,greedy=False)
@@ -257,7 +258,7 @@ class UTitan:
                         self.grad_values_records[epoch,batch,i,j] = param.grad.item()
                 else:
                     break
-            optimizer = self.optimizers[i] if (self.training_mode == 'local' and self.model.tied) else self.optimizer
+            optimizer = self.optimizers[i] if (self.training_mode == 'local' and not self.model.tied) else self.optimizer
             self.lr_values_records[epoch,batch,i] = optimizer.param_groups[0]['lr']
 
         # Créer les graphes
@@ -267,20 +268,33 @@ class UTitan:
             self.plot_trajectory(self.grad_values_records[epoch,batch,:,idx],'grad '+ name,f'Gradients of {name}',epoch,batch,'Parameters_gradients',global_step,color=plt.cm.tab10(idx),marker='h')
         self.plot_trajectory(self.lr_values_records[epoch,batch,:],'Learning_rates','learning rates',epoch,batch,'Training_parameters',global_step,color='k',marker='o')
         
-    def select_num_layers(self,loader=None,tol=1e-5):
-        trajectory = self.eval_trajectory(loader,save=False,loss=ISI_loss(),write=False)
-        lim = trajectory[-1]
-        for L in range(len(trajectory)):
-            if trajectory[L] < lim + tol:
-                return L
+    def select_num_layers(self,loader=None,crit=1e-10):
+        if loader == None:
+            eval_set = IVAGDataset(data_path=self.eval_path,dimensions=self.dimensions,metaparameters=self.metaparameters,size=self.eval_size,device=self.device)
+            loader = DataLoader(eval_set,batch_size=self.batch_size,shuffle=True)
+        Rx,Winit,Cinit,A = loader[0]
+        B,N,_,K = Winit.shape
+        rho_Rx = spectral_norm_extracted(Rx,K,N)
+        W,C,W_prev,C_prev = Winit.clone(),Cinit.clone(),Winit.clone(),Cinit.clone()
+        L = 0
+        diff = torch.inf
+        while diff > crit:
+            layer = self.model.Layer if self.model.tied else self.model.Layers[L]
+            with torch.no_grad():
+                W,C,W_prev,C_prev = layer(Rx,rho_Rx,W,W_prev,C,C_prev,i)
+                diff_W = diff_criteria(W,W_prev)
+                diff_C = diff_criteria(C,C_prev) 
+                diff_tmp = max(diff_W,diff_C)
+                diff = min(diff,diff_tmp)
+        return L
             
-    def shorten_model(self,loader=None,tol=1e-5,save=True):
-        L = self.select_num_layers(loader,tol)
+    def shorten_model(self,loader=None,crit=1e-10,save=True):
+        L = self.select_num_layers(loader,crit)
         if not self.model.tied:
             newmodel = self.model.Layers[:L]
         newmodel.num_layers = L
         if save:
-            torch.save(newmodel.state_dict,self.parameters_path + '_shorten')
+            torch.save(newmodel.state_dict,self.parameters_path + '_shortened')
 
     def plot_trajectory(self,data,name,ylabel,epoch,batch,folder,global_step,color='g',marker=''):
         fig,ax = plt.subplots(figsize=(12, 6))

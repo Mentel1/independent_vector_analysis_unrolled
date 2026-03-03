@@ -59,7 +59,7 @@ gradient_processings = ['raw','clip','normalize']
 archis = ['tied','untied','inertial-tied','inertial-untied']
 training_modes = ['local','end-to-end'] #'end-to-end','greedy','local'] #'group-of-layers','layer-by-layer']
 
-archi = 'tied'
+archi = 'untied'
 training_mode = 'end-to-end'
 
 for training_mode in training_modes:

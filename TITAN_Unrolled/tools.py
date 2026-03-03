@@ -104,15 +104,10 @@ def decrease(cost,verbose=0):
                     break
         return False
     
-def diff_criteria(A,B,mode='full'):
-    if A.shape != B.shape:
-        raise ValueError("A and B must be of the same dimension")
-    elif A.ndim < 2 or A.ndim > 3:
-        raise ValueError("Only tensors of order 2 or 3 are accepted")
-    res = 0
-    D = A - B
-
-    max_norm = torch.max(torch.sum(D ** 2,dim=1))
-    return max_norm / (2 * A.size(0))
+def diff_criteria(U,V):
+    B,d1,d2,d3 = U.shape
+    D = U - V
+    max_norms = torch.max(torch.sum(D**2,dim=2),dim=(1,2))/(2 * d2)
+    return torch.sum(max_norms)/B
 
 
