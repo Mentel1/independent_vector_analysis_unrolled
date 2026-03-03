@@ -281,11 +281,12 @@ class UTitan:
         while diff > crit:
             layer = self.model.Layer if self.model.tied else self.model.Layers[L]
             with torch.no_grad():
-                W,C,W_prev,C_prev = layer(Rx,rho_Rx,W,W_prev,C,C_prev,i)
+                W,C,W_prev,C_prev = layer(Rx,rho_Rx,W,W_prev,C,C_prev,L)
                 diff_W = diff_criteria(W,W_prev)
                 diff_C = diff_criteria(C,C_prev) 
                 diff_tmp = max(diff_W,diff_C)
                 diff = min(diff,diff_tmp)
+                L += 1
         return L
             
     def shorten_model(self,loader=None,crit=1e-10,save=True):
