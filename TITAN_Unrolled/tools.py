@@ -50,10 +50,12 @@ def spectral_norm(M):
 def spectral_norm_extracted(Rx,K,N):
     # Rx is expected to have shape (B,K,K,N,N) for batched input
     B = Rx.shape[0]
+    Rx_moved = Rx.permute(0, 2, 1, 3, 4)
     # Reshape Rx to (B,K,K*N,N)
-    Rx_reshaped = torch.reshape(Rx,(B,K,K*N,N))
+    Rx_reshaped = torch.reshape(Rx_moved,(B,K,K*N,N))
     # Compute the 2-norm over dimensions (2,3)
-    norms = torch.norm(Rx_reshaped,p=2,dim=(2,3))
+    # norms = torch.norm(Rx_reshaped,p=2,dim=(2,3))
+    norms = torch.linalg.matrix_norm(Rx_reshaped, ord=2)
     # Return the maximum norm for each batch
     return torch.max(norms,dim=1).values
 

@@ -190,7 +190,8 @@ class UTitan:
                         self.scheduler.step()
                 self.writer.add_scalar('Loss/jisi-eval',self.eval_trajectories_record_jisi[epoch,batch,-1], global_step)
                 self.writer.add_scalar('Loss/jiva-eval',self.eval_trajectories_record_jiva[epoch,batch,-1], global_step)
-            if epoch >= 3 and torch.mean(self.eval_trajectories_record_jiva[epoch,:,-1]).item() > torch.mean(self.eval_trajectories_record_jiva[epoch-1,:,-1]).item() or self.nan_detected:
+            min_epochs = 1 if self.model.tied else 3
+            if epoch >= min_epochs and torch.mean(self.eval_trajectories_record_jiva[epoch,:,-1]).item() > torch.mean(self.eval_trajectories_record_jiva[epoch-1,:,-1]).item() or self.nan_detected:
                 torch.save((epoch,batch),self.model_path+'/ending_step')
                 break
         self.writer.close()  

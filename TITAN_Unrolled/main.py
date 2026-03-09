@@ -11,25 +11,19 @@ import matplotlib as mpl
 from tqdm import tqdm
 import cProfile
 from algorithms.titan_iva_g_reg_torch import *
+import argparse
 
 # Hyperparameters
-
-T = 10000
-K = 20
-N = 30
-Ks = [5,10,20]
-Ns = [10,20,30]
 
 lambda_1 = 0.04
 lambda_2 = 0.25
 rho_bounds_1 = [0.2,0.3]
 rho_bounds_2 = [0.6,0.7]
-rhos = [rho_bounds_1] #,rho_bounds_2]
-lambdas = [lambda_1] #,lambda_2]
+rhos = [rho_bounds_1,rho_bounds_2]
+lambdas = [lambda_1,lambda_2]
 
 metaparameters_multiparam = get_metaparameters(rhos,lambdas)
-metaparameters_title = 'Case_A' #,'Case_B','Case_C','Case_D'] #,'Multi_case','Easy_case','Hard_case'
-
+metaparameters_titles = ['Case_A','Case_B','Case_C','Case_D'] #,'Multi_case','Easy_case','Hard_case'
 
 num_epochs = 20
 batch_size = 100
@@ -40,9 +34,7 @@ custom = False
 train_size = 1000
 eval_size = 200
 
-normalize_derivatives1 = True
-normalize_derivatives2 = False
-learning_rate = 1
+learning_rate = 0.1
 weight_decay = 0
 
 scheduler_mode =  'StepLR' #'ReduceLROnPlateau' #
@@ -52,20 +44,34 @@ factor_lr = 0.8
 min_lr = 0.01
 # parameters for ReduceLROnPlateau
 gamma = 0.8
-step_size = 5
 
-optimizers = [torch.optim.SGD,torch.optim.Adam]
-gradient_processings = ['raw','clip','normalize']
-archis = ['tied','untied','inertial-tied','inertial-untied']
-training_modes = ['local','end-to-end'] #'end-to-end','greedy','local'] #'group-of-layers','layer-by-layer']
+OPTIMIZERS = {'SGD': (torch.optim.SGD,'normalize'),'Adam': (torch.optim.Adam,'raw')}
 
-archi = 'untied'
-training_mode = 'end-to-end'
+parser = argparse.ArgumentParser()
+parser.add_argument('--K', type=int, default=20)
+parser.add_argument('--N', type=int, default=30)
+parser.add_argument('--T', type=int, default=10000)
+parser.add_argument('--num_case',type=int, default=0)
+parser.add_argument('--opt', type=str, default='SGD', choices=['SGD', 'Adam'])
+parser.add_argument('--training_mode', type=str, default='local', choices=['local', 'end-to-end'])
+parser.add_argument('--archi', type=str, default='untied', choices=['tied', 'untied', 'inertial-tied', 'inertial-untied'])
+parser.add_argument('--step_size', type=int, default=5)
+args = parser.parse_args()
 
-for training_mode in training_modes:
-    for optimizer,gradient_processing in [(torch.optim.SGD,'normalize'),(torch.optim.Adam,'raw')]:
-        test = UTitan(dimensions=(N,T,K),metaparameters=metaparameters_multiparam,metaparameters_title=metaparameters_title,train_size=train_size,eval_size=eval_size,batch_size=batch_size,num_epochs=num_epochs,num_layers=num_layers,optimizer=optimizer,lr=learning_rate,weight_decay=weight_decay,gradient_processing=gradient_processing,scheduler_mode=scheduler_mode,step_size=step_size,gamma=gamma,patience=patience,factor_lr=factor_lr,min_lr=min_lr,N_updates_W=N_updates_W,archi=archi,custom=custom,loss_train=loss,training_mode=training_mode,load=False)
-        test.train()
+
+N = args.N
+K = args.K
+T = args.T
+num_case = args.num_case
+opt = args.opt
+training_mode = args.training_mode
+archi = args.archi
+step_size = args.step_size
+
+optimizer, gradient_processing = OPTIMIZERS[opt]
+
+test = UTitan(model_name='UTitan'+ str(step_size),dimensions=(N,T,K),metaparameters=[metaparameters_multiparam[num_case]],metaparameters_title=metaparameters_titles[num_case],train_size=train_size,eval_size=eval_size,batch_size=batch_size,num_epochs=num_epochs,num_layers=num_layers,optimizer=optimizer,lr=learning_rate,weight_decay=weight_decay,gradient_processing=gradient_processing,scheduler_mode=scheduler_mode,step_size=step_size,gamma=gamma,patience=patience,factor_lr=factor_lr,min_lr=min_lr,N_updates_W=N_updates_W,archi=archi,custom=custom,loss_train=loss,training_mode=training_mode,load=False)
+test.train()
     
     
 #================ DATASETS CREATION =================    
