@@ -68,10 +68,18 @@ training_mode = args.training_mode
 archi = args.archi
 step_size = args.step_size
 
-optimizer, gradient_processing = OPTIMIZERS[opt]
 
-test = UTitan(model_name='UTitan'+ str(step_size),dimensions=(N,T,K),metaparameters=[metaparameters_multiparam[num_case]],metaparameters_title=metaparameters_titles[num_case],train_size=train_size,eval_size=eval_size,batch_size=batch_size,num_epochs=num_epochs,num_layers=num_layers,optimizer=optimizer,lr=learning_rate,weight_decay=weight_decay,gradient_processing=gradient_processing,scheduler_mode=scheduler_mode,step_size=step_size,gamma=gamma,patience=patience,factor_lr=factor_lr,min_lr=min_lr,N_updates_W=N_updates_W,archi=archi,custom=custom,loss_train=loss,training_mode=training_mode,load=False)
-test.train()
+# for opt in ['SGD','Adam']:
+#     for training_mode in ['local','end-to-end']:
+
+optimizer, gradient_processing = OPTIMIZERS['SGD']
+training_mode = 'local'
+for archi in ['tied', 'untied', 'inertial-tied', 'inertial-untied']:
+    test = UTitan(model_name='UTitan'+ str(step_size),dimensions=(N,T,K),metaparameters=[metaparameters_multiparam[num_case]],metaparameters_title=metaparameters_titles[num_case],train_size=train_size,eval_size=eval_size,batch_size=batch_size,num_epochs=num_epochs,num_layers=num_layers,optimizer=optimizer,lr=learning_rate,weight_decay=weight_decay,gradient_processing=gradient_processing,scheduler_mode=scheduler_mode,step_size=step_size,gamma=gamma,patience=patience,factor_lr=factor_lr,min_lr=min_lr,N_updates_W=N_updates_W,archi=archi,custom=custom,loss_train=loss,training_mode=training_mode,load=True)
+    # test.train()
+    # L = test.select_num_layers()
+    # print(f'{test.model_name} can be shortened to {L} layers')
+    test.shorten_model()
     
     
 #================ DATASETS CREATION =================    

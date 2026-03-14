@@ -42,32 +42,31 @@ lambda_1 = 0.04
 lambda_2 = 0.25
 rho_bounds_1 = [0.2,0.3]
 rho_bounds_2 = [0.6,0.7]
-rhos = [rho_bounds_1,rho_bounds_2]
-lambdas = [lambda_1,lambda_2]
+rhos = [rho_bounds_1] #,rho_bounds_2]
+lambdas = [lambda_1] #,lambda_2]
 dataparameters_multiparam = get_dataparameters(rhos,lambdas)
-dataparameters_titles_multiparam = ['Case_A','Case_B','Case_C','Case_D']
-dataparameters_base = get_dataparameters([[0.4,0.6]],[0.1])
-dataparameters_base_titles = ['Base_Case']
+dataparameters_titles_multiparam = ['Case_A'] #,'Case_B','Case_C','Case_D']
+# dataparameters_base = get_dataparameters([[0.4,0.6]],[0.1])
+# dataparameters_base_titles = ['Base_Case']
 # dataparameters_identifiability = [1e-2,1e-1,1]
 # dataparameters_titles_identifiability = ['low identifiability','medium identifiability','high identifiability']
 # dataparameters = [{'noise_levels':[0,1e-3,1e-2,1e-1,1,10]}]
-dataparameters = [{'num_samples':[10000,5000,1000,500,200,150,120,100]}]
+# dataparameters = [{'num_samples':[10000,5000,1000,500,200,150,120,100]}]
 
-Ks = [5,10,20]
-Ns = [10,20,30] 
+Ks = [20]
+Ns = [30] 
+
 common_parameters = [Ks,Ns]
 
+algos = [UTitanIvaG(archi=archi) for archi in ['tied', 'untied', 'inertial-tied', 'inertial-untied']]
+algos.append(TitanIvaG(nu=0,gamma_c=1.99))
 
-# exp = ComparisonExperimentIvaG.from_folder('2025-12-29_16-46_ExternalRace_multiparam')
-# exp.make_table(),
-
-algo_titan = TitanIvaG([1,0,0],nu=0,max_iter_int_W=15,gamma_c=1.99)
-algos = [algo_titan]
-# algos = create_algos_titanIVAG(varying_param='epsilon',values=[1e-3,1e-2,1e-1],base_params={'nu':0,'max_iter_int_W':15,'gamma_c':1.99},basename='palm')
-exp = ComparisonExperimentIvaG('Robustness_noise',dataparameters,dataparameters_base_titles,[[20],[10]],algos=algos,N_exp=10,legend_fontsize=20,title_fontsize=30,updates=True)
+exp = ComparisonExperimentIvaG(name='Testing the unrolling',data_parameters=data_parameters,data_parameters_titles=data_parameters_titles,common_parameters=common_parameters)
 exp.compute_multi_runs()
-# exp.compute_empirical_convergence(0,20,20,['costs','jisi','times'],detailed=False)
-# exp.draw_empirical_convergence(0,20,5,'jisi',mode='iter')
+
+
+
+
 
    
 # ================================================================================================

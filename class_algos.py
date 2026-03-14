@@ -8,15 +8,12 @@ from algorithms.titan_iva_g_reg_torch import *
 
 class IvaGAlgorithms:
 
-    def __init__(self,name,legend,color,library):
+    def __init__(self,name,legend,color):
         self.name = name
         self.legend = legend
         self.color = color
-        self.library = library
         self.results = {}
-
-    def solve(self,Rx):
-        pass
+        # A ajouter : la possibilité d'avoir les features vectorielles qui permettent de tracer des courbes (cost, jisi...)
     
     def to_dict(self):
         """Convertit l'algo en dictionnaire sérialisable"""
@@ -31,17 +28,8 @@ class IvaGAlgorithms:
         actual_cls = getattr(current_module, class_name)
         return actual_cls(**config)
 
-    def fill_experiment(self,Rx,A,exp,Winit=None,Cinit=None,count_updates=False,track_diffs=False):
-        res = self.solve(Rx,Winit=Winit,Cinit=Cinit,track_schemes=count_updates,track_diffs=track_diffs)
-        self.results['total_times'][exp] = res['times'][-1]
-        W = res['W']
-        if self.library == 'torch':
-            A = torch.tensor(A)
-            self.results['final_jisi'][exp] = joint_isi_torch(W,A)
-        elif self.library == 'numpy':
-            self.results['final_jisi'][exp] = joint_isi_numpy(W,A)
-        if count_updates:
-            self.results['number_updates'][exp] = res['N_iter']
+    def fill_experiment(self,exp,Rx,A,Winit=None,Cinit=None,count_updates=False,track_diffs=False):
+        pass
 
     def fill_from_folder(self,output_path_individual):
         for result in ['total_times','final_jisi','number_updates']:
@@ -51,44 +39,38 @@ class IvaGAlgorithms:
 
 class IvaG(IvaGAlgorithms):
 
-    def __init__(self,color='b',name='IVA-G-N',legend='IVA-G-N',opt_approach='newton',max_iter=5000,crit_ext=1e-6,library='torch',fast=False,jdiag_initW=False):
-        super().__init__(name=name,legend=legend,color=color,library=library)
+    def __init__(self,color='b',name='IVA-G-N',legend='IVA-G-N',opt_approach='newton',max_iter=5000,W_diff_stop=1e-6,fast=False,jdiag_initW=False):
+        super().__init__(name=name,legend=legend,color=color)
         self.opt_approach = opt_approach
-        self.crit_ext = crit_ext
+        self.W_diff_stop = W_diff_stop
         self.fast = fast
         self.jdiag_initW = jdiag_initW
         self.max_iter = max_iter
-        self.algo_params=['']
 
     def to_dict(self):
-        return {'class': self.__class__.__name__,'color': self.color,'name': self.name,'legend': self.legend,'library': self.library,'opt_approach': self.opt_approach,'crit_ext': self.crit_ext,'fast': self.fast,'jdiag_initW': self.jdiag_initW,'max_iter': self.max_iter}
+        return {'class': self.__class__.__name__,'color': self.color,'name': self.name,'legend': self.legend,'opt_approach': self.opt_approach,'W_diff_stop': self.W_diff_stop,'fast': self.fast,'jdiag_initW': self.jdiag_initW,'max_iter': self.max_iter}
         
     def _get_base_params(self):
-        return {'W_diff_stop': self.crit_ext,'max_iter': self.max_iter,'opt_approach':self.opt_approach,'jdiag_initW': self.jdiag_initW}
+        return {'W_diff_stop': self.W_diff_stop,'max_iter': self.max_iter,'opt_approach':self.opt_approach,'jdiag_initW': self.jdiag_initW}
     
-    def solve(self,Rx,**kwargs):
-            Winit = kwargs['Winit']
-            self.normalize_Winit(Winit)
-            kwargs.update({'return_W_change' : 'track_diffs' in kwargs.keys() and kwargs['track_diffs']})
-            params = self._get_base_params()
-            used_params = list(inspect.signature(iva_g_numpy).parameters.keys())
-            params.update({k: v for k, v in kwargs.items() if k in used_params})
-            if self.library == 'numpy':
-                if self.fast:
-                    raise("fast_iva_g is not supported at the moment")
-                    # return fast_iva_g_numpy(Rx,**params)
-                else:
-                    return iva_g_numpy(Rx,**params)
-            elif self.library == 'torch':
-                Winit = torch.tensor(Winit)
-                Rx = torch.from_numpy(Rx)
-                if self.fast:
-                    # return fast_iva_g_torch(Rx,**params)
-                    raise("fast_iva_g is not supported at the moment")
-                else:
-                    return iva_g_torch(Rx,**params)
+    def fill_experiment(self,exp,Rx,A,**kwargs):
+        # Use kwargs to compute the iva_g arguments
+        params = self._get_base_params()
+        params['return_W_change'] = kwargs.get('track_diffs',False)
+        Winit = kwargs['Winit']
+        self.normalize_Winit_(Winit)
+        params['W_init'] = Winit
+        # apply iva_g
+        res = iva_g_torch(Rx,**params)
+        # fill the dictionary "results" with the appropriate data
+        self.results['total_times'][exp] = res['times'][-1]
+        self.results['final_jisi'][exp] = joint_isi_torch(res['W'],A)
+        if kwargs.get('count_updates',False):
+            self.results['number_updates'][exp] = len(res['times'])
+        if kwargs.get('track_diffs',False):
+            self.results['diffs_W'] = res['W_change']
 
-    def normalize_Winit(self,Winit):
+    def normalize_Winit_(self,Winit):
         _,_,K = Winit.shape
         for k in range(K):
             Winit[:, :, k] = np.linalg.solve(sc.linalg.sqrtm(Winit[:, :, k] @ Winit[:, :, k].T), Winit[:, :, k]) 
@@ -96,8 +78,8 @@ class IvaG(IvaGAlgorithms):
 
 class TitanIvaG(IvaGAlgorithms):    
 
-    def __init__(self,color='b',name='titan',legend='TITAN-IVA-G',library='torch',nu=0.5,max_iter=20000,max_iter_int_W=15,max_iter_int_C=1,crit=1e-10,epsilon=1e-12,zeta=1e-3,gamma_w=0.99,gamma_c=1,alpha=1,init_method='random',seed=None,boost=False,exactC=False):
-        super().__init__(name=name,legend=legend,color=color,library=library)
+    def __init__(self,color='b',name='titan',legend='TITAN-IVA-G',nu=0.5,max_iter=20000,max_iter_int_W=15,max_iter_int_C=1,crit=1e-10,epsilon=1e-12,zeta=1e-3,gamma_w=0.99,gamma_c=1,alpha=1,init_method='random',seed=None,boost=False,exactC=False):
+        super().__init__(name=name,legend=legend,color=color)
         self.crit_int = crit # remettre les deux arguments séparés après avoir fini le manuscrit
         self.crit_ext = crit
         self.max_iter = max_iter
@@ -115,7 +97,7 @@ class TitanIvaG(IvaGAlgorithms):
         self.exactC = exactC
 
     def to_dict(self):
-        return {'class': self.__class__.__name__, 'color': self.color,'name': self.name,'legend': self.legend,'library': self.library,'crit_int': self.crit_int,'crit_ext': self.crit_ext,'max_iter_int_W': self.max_iter_int_W,'max_iter_int_C': self.max_iter_int_C,'max_iter': self.max_iter,'nu': self.nu,'alpha': self.alpha,'epsilon': self.epsilon,'zeta': self.zeta, 'gamma_w': self.gamma_w,'gamma_c': self.gamma_c,'init_method': self.init_method,'seed': self.seed,'boost': self.boost,'exactC': self.exactC}
+        return {'class': self.__class__.__name__, 'color': self.color,'name': self.name,'legend': self.legend,'crit_int': self.crit_int,'crit_ext': self.crit_ext,'max_iter_int_W': self.max_iter_int_W,'max_iter_int_C': self.max_iter_int_C,'max_iter': self.max_iter,'nu': self.nu,'alpha': self.alpha,'epsilon': self.epsilon,'zeta': self.zeta, 'gamma_w': self.gamma_w,'gamma_c': self.gamma_c,'init_method': self.init_method,'seed': self.seed,'boost': self.boost,'exactC': self.exactC}
     
     @classmethod
     def from_dict(cls, config):
@@ -123,30 +105,34 @@ class TitanIvaG(IvaGAlgorithms):
         return cls(**config)
     
     def _get_base_params(self):
-        return {'alpha': self.alpha,'gamma_w': self.gamma_w,'gamma_c': self.gamma_c,'crit_ext': self.crit_ext,'crit_int': self.crit_int,'epsilon': self.epsilon,'zeta':self.zeta,'nu': self.nu,'max_iter': self.max_iter,'max_iter_int_W': self.max_iter_int_W,'max_iter_int_C': self.max_iter_int_C,'seed': self.seed,'boost':self.boost}
+        return {'alpha': self.alpha,'gamma_w': self.gamma_w,'gamma_c': self.gamma_c,'crit_ext': self.crit_ext,'crit_int': self.crit_int,'epsilon': self.epsilon,'zeta' :self.zeta,'nu': self.nu,'max_iter': self.max_iter,'max_iter_int_W': self.max_iter_int_W,'max_iter_int_C': self.max_iter_int_C,'seed': self.seed,'boost': self.boost}
               
-    def solve(self,Rx,**kwargs):
+    def fill_experiment(self,exp,Rx,A,**kwargs):
+        # prepare the parameters
         params = self._get_base_params()
-        used_params = list(inspect.signature(titan_iva_g_reg_torch).parameters.keys())
-        params.update({k: v for k, v in kwargs.items() if k in used_params})
-        if self.library == 'numpy':
-            res = titan_iva_g_reg_numpy(Rx,**params)
-        elif self.library == 'torch':
-            res = titan_iva_g_reg_torch(Rx,**params)
-        if kwargs.get('track_schemes',False):
-            res['N_iter'] = torch.sum(res['scheme'][:,0])
-        return res
+        params['track_schemes'] = if kwargs.get('count_updates',False)
+        params.update('Winit':kwargs['Winit'],'Cinit':kwargs['Cinit'],'track_diffs':kwargs['track_diffs'])
+        # apply titan_iva_g_reg
+        res = titan_iva_g_reg_torch(Rx,**params)
+        # fill the results
+        self.results['total_times'][exp] = res['times'][-1]
+        self.results['final_jisi'][exp] = joint_isi_torch(res['W'],A)
+        if kwargs.get('count_updates',False):
+            self.results['number_updates'][exp] = torch.sum(res['scheme'][:,0])
+        if kwargs.get('track_diffs',False):
+            self.results['diffs_W'] = res['diffs_W']
+            self.results['diffs_C'] = res['diffs_C']
     
 class UTitanIvaG(IvaGAlgorithms):    
 
-    def __init__(self,model,color='b',name='Utitan',legend='U-TITAN-IVA-G',library='torch',init_method='random',seed=None):
-        super().__init__(name=name,legend=legend,color=color,library=library)
-        self.model = model
-        self.init_method = init_method
-        self.seed = seed
+    def __init__(self,model,color='b',name='Utitan',legend='U-TITAN-IVA-G',seed=None,dimensions=(30,10000,20),metaparameters_title='Case_A',archi='untied',training_mode='local',optimizer=torch.optim.SGD,gradient_processing='normalize',step_size=5):
+        super().__init__(name=name,legend=legend,color=color)
+        self.pipeline = UTitan(model_name='UTitan'+ str(step_size),archi=archi,training_mode='local',dimensions=dimensions,metaparameters_title=metaparameters_titles,optimizer=optimizer,gradient_processing=gradient_processing,step_size=step_size,load=True)
+        self.model = self.pipeline.model
+        
 
     def to_dict(self):
-        return {'class': self.__class__.__name__, 'color': self.color,'name': self.name,'legend': self.legend,'library': self.library,'init_method': self.init_method,'model':self.model,'seed': self.seed}
+        return {'class': self.__class__.__name__, 'color': self.color,'name': self.name,'legend': self.legend,'model':self.model}
     
     @classmethod
     def from_dict(cls, config):
@@ -154,11 +140,22 @@ class UTitanIvaG(IvaGAlgorithms):
         return cls(**config)
     
     def _get_base_params(self):
-        return {'seed': self.seed}
+        return {'seed':self.seed}
               
-    def solve(self,Rx,**kwargs):
-        params = self._get_base_params()
-        used_params = list(inspect.signature(self.model).parameters.keys())
-        params.update({k: v for k, v in kwargs.items() if k in used_params})
-        res = self.model(Rx,**params)
-        return res
+    def fill_experiment(self,exp,Rx,A,**kwargs):
+    Rx_batch = Rx.unsqueeze(0)
+    Winit_batch = kwargs['Winit'].unsqueeze(0)
+    Cinit_batch = kwargs['Cinit'].unsqueeze(0)
+    
+    with torch.no_grad():
+        torch.cuda.synchronize()
+        start = time.time()
+        res = self.model(Rx_batch, Winit_batch, Cinit_batch)
+        torch.cuda.synchronize()
+        end = time.time()
+    
+    self.results['total_times'][exp] = end - start
+    self.results['final_jisi'][exp] = joint_isi_torch(res['W'],A)
+    if kwargs.get('count_updates',False):
+        self.results['number_updates'][exp] = self.model.num_layers*10 #Hardcodé pour le moment mais le 10 doit être remplacé par N_updates_W lors de la prochaine refonte.
+            

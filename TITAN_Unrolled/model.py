@@ -69,9 +69,9 @@ class UTitan:
         self.N_updates_C = N_updates_C
         self.epsilon = epsilon
         self.model = UTitanIVAGModel(N_updates_W,N_updates_C,num_layers=num_layers,epsilon=epsilon,archi=archi,custom=custom,N=self.N,K=self.K).to(self.device)
-        self.num_param = 3 + 2*("inertial" in training_mode)
         layer = self.model.Layer if self.model.tied else self.model.Layers[0] 
         self.param_names = [name for name,_ in layer.named_parameters()]
+        self.num_param = len(self.param_names)
         
         # training information
         self.training_mode = training_mode # 'end-to-end' or 'greedy' or 'group_of_layers' or 'local' or 'one_by_one'
@@ -112,7 +112,8 @@ class UTitan:
         os.makedirs(self.model_path,exist_ok=True)
         self.parameters_path = os.path.join(self.model_path,'parameters')
         if os.path.exists(self.parameters_path) & load:
-           self.model.load_state_dict(torch.load(self.parameters_path,weights_only=True))
+           self.model.load_state_dict(torch.load(self.parameters_path,weights_only=False))
+           print('Model succesfully loaded!')
         self.train_loss_path = os.path.join(self.model_path,'train_loss')
         self.eval_trajectories_path = os.path.join(self.model_path,'eval_trajectories')
         self.param_values_path = os.path.join(self.model_path,'param_values')
@@ -180,7 +181,7 @@ class UTitan:
                     break     
                 if self.eval_trajectories_record_jiva[epoch,batch,-1].item() < self.min_eval:
                     self.min_eval = self.eval_trajectories_record_jiva[epoch,batch,-1].item()
-                    torch.save(self.model.state_dict,self.parameters_path)
+                    torch.save(self.model.state_dict(),self.parameters_path)
                 print(f'jisi loss after epoch {epoch+1} and batch {batch+1} is {self.eval_trajectories_record_jisi[epoch,batch,-1].item()}')
                 if self.training_mode != 'local':
                     self.writer.add_scalar('LR', self.optimizer.param_groups[0]['lr'], global_step)
@@ -190,7 +191,7 @@ class UTitan:
                         self.scheduler.step()
                 self.writer.add_scalar('Loss/jisi-eval',self.eval_trajectories_record_jisi[epoch,batch,-1], global_step)
                 self.writer.add_scalar('Loss/jiva-eval',self.eval_trajectories_record_jiva[epoch,batch,-1], global_step)
-            min_epochs = 1 if self.model.tied else 3
+            min_epochs = 1 if (self.model.tied and self.training == 'local') else 3
             if epoch >= min_epochs and torch.mean(self.eval_trajectories_record_jiva[epoch,:,-1]).item() > torch.mean(self.eval_trajectories_record_jiva[epoch-1,:,-1]).item() or self.nan_detected:
                 torch.save((epoch,batch),self.model_path+'/ending_step')
                 break
@@ -234,7 +235,7 @@ class UTitan:
     def compute_trajectory(self,loader=None,write=True,epoch=None,batch=None,record_layer_improvements=False):
         global_step = epoch * len(self.training_loader) + batch + 1
         if loader == None:
-            eval_set = IVAGDataset(data_path=self.eval_path,dimensions=self.dimensions,metaparameters=self.metaparameters,size=self.eval_size,device=self.device)
+            eval_set = IVAGDataset(data_path=self.eval_set_path,dimensions=self.dimensions,metaparameters=self.metaparameters,size=self.eval_size,device=self.device)
             loader = DataLoader(eval_set,batch_size=self.batch_size,shuffle=True)
         for _,(Rx,Winit,Cinit,A) in enumerate(loader):
             with torch.no_grad():                        
@@ -251,12 +252,12 @@ class UTitan:
     def log_layer_parameters(self,epoch,batch,global_step):
         for i,layer in enumerate(self.model.Layers):
             for j,param in enumerate(layer.parameters()):
-                if 'beta' not in self.param_names[j] or "inertial" in self.training_mode:
+                if 'beta' not in self.param_names[j]:
                     self.param_values_records[epoch,batch,i,j] = self.model.Layers[i].soft(param).item()
-                    if 'beta' in self.param_names[j]:
-                        self.param_values_records[epoch,batch,i,j] *= 0.1
-                    if param.grad != None:
-                        self.grad_values_records[epoch,batch,i,j] = param.grad.item()
+                else:
+                    self.param_values_records[epoch,batch,i,j] *= 0.1
+                if param.grad != None:
+                    self.grad_values_records[epoch,batch,i,j] = param.grad.item()
                 else:
                     break
             optimizer = self.optimizers[i] if (self.training_mode == 'local' and not self.model.tied) else self.optimizer
@@ -269,34 +270,31 @@ class UTitan:
             self.plot_trajectory(self.grad_values_records[epoch,batch,:,idx],'grad '+ name,f'Gradients of {name}',epoch,batch,'Parameters_gradients',global_step,color=plt.cm.tab10(idx),marker='h')
         self.plot_trajectory(self.lr_values_records[epoch,batch,:],'Learning_rates','learning rates',epoch,batch,'Training_parameters',global_step,color='k',marker='o')
         
-    def select_num_layers(self,loader=None,crit=1e-10):
+    def select_num_layers(self,loader=None,tol=1e-2):
         if loader == None:
-            eval_set = IVAGDataset(data_path=self.eval_path,dimensions=self.dimensions,metaparameters=self.metaparameters,size=self.eval_size,device=self.device)
+            eval_set = IVAGDataset(data_path=self.eval_set_path,dimensions=self.dimensions,metaparameters=self.metaparameters,size=self.eval_size,device=self.device)
             loader = DataLoader(eval_set,batch_size=self.batch_size,shuffle=True)
-        Rx,Winit,Cinit,A = loader[0]
-        B,N,_,K = Winit.shape
-        rho_Rx = spectral_norm_extracted(Rx,K,N)
-        W,C,W_prev,C_prev = Winit.clone(),Cinit.clone(),Winit.clone(),Cinit.clone()
-        L = 0
-        diff = torch.inf
-        while diff > crit:
-            layer = self.model.Layer if self.model.tied else self.model.Layers[L]
-            with torch.no_grad():
-                W,C,W_prev,C_prev = layer(Rx,rho_Rx,W,W_prev,C,C_prev,L)
-                diff_W = diff_criteria(W,W_prev)
-                diff_C = diff_criteria(C,C_prev) 
-                diff_tmp = max(diff_W,diff_C)
-                diff = min(diff,diff_tmp)
-                L += 1
+        Rx,Winit,Cinit,A = next(iter(loader))
+        outputs = self.model(Rx,Winit,Cinit,track_jisi=True,A=A,track_cost=False)
+        L = self.num_layers-1
+        jisi_scores = outputs['jisi']
+        crit = jisi_scores[L]*(1 + tol)
+        jisi = jisi_scores[L]
+        while jisi < crit and L > 0:
+            L -= 1
+            jisi = jisi = jisi_scores[L]
         return L
             
-    def shorten_model(self,loader=None,crit=1e-10,save=True):
-        L = self.select_num_layers(loader,crit)
+    def shorten_model(self,loader=None,tol=1e-2,save=True):
+        L = self.select_num_layers(loader,tol)
         if not self.model.tied:
             newmodel = self.model.Layers[:L]
+        else:
+            newmodel = self.model
         newmodel.num_layers = L
         if save:
-            torch.save(newmodel.state_dict,self.parameters_path + '_shortened')
+            torch.save(newmodel.state_dict(),self.parameters_path + '_shortened')
+            print('succesfully shortened the model!')
 
     def plot_trajectory(self,data,name,ylabel,epoch,batch,folder,global_step,color='g',marker=''):
         fig,ax = plt.subplots(figsize=(12, 6))

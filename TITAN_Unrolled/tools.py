@@ -109,7 +109,8 @@ def decrease(cost,verbose=0):
 def diff_criteria(U,V):
     B,d1,d2,d3 = U.shape
     D = U - V
-    max_norms = torch.max(torch.sum(D**2,dim=2),dim=(1,2))/(2 * d2)
+    S = torch.sum(D**2,dim=2)
+    max_norms = torch.max(S.flatten(1),dim=1).values /(2 * d2)
     return torch.sum(max_norms)/B
 
 
