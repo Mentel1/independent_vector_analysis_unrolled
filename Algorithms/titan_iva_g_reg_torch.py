@@ -3,6 +3,7 @@ import numpy as np
 from time import time
 from .initializations import _jbss_sos,_cca
 from .algebra_toolbox_torch import *
+from TITAN_Unrolled.tools import spectral_norm_extracted
 
 def cost_iva_g_reg(W,C,Rx,alpha):
     res = -torch.sum(torch.log(torch.det(C.permute(2,0,1))))/2
@@ -57,6 +58,9 @@ def compute_L_W(C,Rx,nu,l_inf,boost):
 def titan_iva_g_reg_torch(Rx,alpha=1,gamma_c=1,gamma_w=0.99,max_iter=20000,max_iter_int_W=15,max_iter_int_C=1,crit_int=1e-10,crit_ext=1e-10,init_method='random',Winit=None,Cinit=None,epsilon=10**(-12),zeta=1e-3,track_times=True,track_costs=False,track_jisi=False,track_diffs=False,track_schemes=False,track_shifts=False,A=None,nu=0.5,adaptative_gamma_w=False,gamma_w_decay=0.9,boost=False,seed=None):
     alpha,gamma_c,gamma_w,N,K,rho_Rx = init_data_param(Rx,alpha,gamma_c,gamma_w)
     #Empiriquement,prend des valeurs entre 1 et 3 après whitening
+    print(rho_Rx)
+    Rx_batch = Rx.unsqueeze(0)
+    print(spectral_norm_extracted(Rx_batch,K,N))
     W,C = initialize(N,K,init_method=init_method,Winit=Winit,Cinit=Cinit,seed=seed)
     rho_bar = max(spectral_norm_torch(C),3*K*(1+torch.sqrt(1/(2*alpha*gamma_c))))
     l_sup = max((gamma_w*alpha)/(1-gamma_w),rho_Rx*rho_bar)
@@ -92,7 +96,7 @@ def titan_iva_g_reg_torch(Rx,alpha=1,gamma_c=1,gamma_w=0.99,max_iter=20000,max_i
         diff_int_W = torch.inf
         diff_int_C = torch.inf
         N_step_int_W = 0
-        N_step_int_C = 0         
+        N_step_int_C = 0      
         while diff_int_W > crit_int and N_step_int_W < max_iter_int_W:
             W,W_prev = update_W(gamma_w,nu,Rx,W,C,C0,W_prev,L_w,L_w_prev,c_w)
             diff_int_W = diff_criteria_torch(W,W_prev)
@@ -196,6 +200,7 @@ def report_variables(W,C,N_step,max_iter,track_times,times,detailed_times,
                      track_costs,costs,detailed_costs,track_jisi,jISI,detailed_jISI,
                      track_diffs,diffs_W,diffs_C,track_schemes,scheme,
                      track_shifts,shifts_W):
+    print(f'Number of steps : {N_step}')
     met_limit = (N_step < max_iter)
     results = {'W': W,'C': C,'met_limit': met_limit}
     

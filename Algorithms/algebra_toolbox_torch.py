@@ -34,7 +34,11 @@ def spectral_norm_torch(M):
     return torch.max(norms)  # Renvoyer la norme spectrale maximale """
 
 def spectral_norm_extracted_torch(Rx,K,N):
-    return torch.max(torch.norm(torch.reshape(Rx,(K,K*N,N)),p=2,dim=(1,2)))
+    Rx_moved = Rx.permute(1, 0, 2, 3)
+    Rx_reshaped = torch.reshape(Rx_moved,(K,K*N,N))
+    norms = torch.linalg.matrix_norm(Rx_reshaped, ord=2)
+    # Return the maximum norm for each batch
+    return torch.max(norms,dim=0).values
 
 def smallest_singular_value(C):
     return torch.min(torch.svd(C.permute(2, 0, 1))[1])
@@ -82,9 +86,9 @@ def diff_criteria_torch(A,B):
         raise ValueError("A and B must be of the same dimension")
     elif A.ndim < 2 or A.ndim > 3:
         raise ValueError("Only tensors of order 2 or 3 are accepted")
-    res = 0
     D = A - B
     max_norm = torch.max(torch.sum(D ** 2, dim=1))
-    return max_norm / (2 * A.size(0))
+    res =  max_norm / (2 * A.shape[1])
+    return res
 
   

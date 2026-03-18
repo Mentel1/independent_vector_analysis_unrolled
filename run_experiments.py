@@ -2,9 +2,10 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 from tqdm import tqdm
 import cProfile
-from class_exp import *
-from class_algos import *
-from algorithms.titan_iva_g_reg_torch import *
+from experiment import *
+from algorithms import *
+from Algorithms.titan_iva_g_reg_torch import *
+from TITAN_Unrolled.data import *
 
 label_size = 20
 mpl.rcParams['xtick.labelsize'] = label_size
@@ -58,14 +59,35 @@ Ns = [30]
 
 common_parameters = [Ks,Ns]
 
-algos = [UTitanIvaG(archi=archi) for archi in ['tied', 'untied', 'inertial-tied', 'inertial-untied']]
+algos = []
 algos.append(TitanIvaG(nu=0,gamma_c=1.99))
+for archi in ['tied','untied','inertial-tied','inertial-untied']:
+    algo = UTitanIvaG(name='UTitan'+'_'+archi,archi=archi)
+    algo.model.num_layers = algo.pipeline.select_num_layers()
+    algos.append(algo)
 
-exp = ComparisonExperimentIvaG(name='Testing the unrolling',data_parameters=data_parameters,data_parameters_titles=data_parameters_titles,common_parameters=common_parameters)
+
+exp = ComparisonExperimentIvaG(name='Testing_unrolling',dataparameters=[{'rho_bounds':rho_bounds_1,'lambda':lambda_1}],dataparameters_titles=['Case_A'],common_parameters=common_parameters,algos=algos,N_exp=100)
 exp.compute_multi_runs()
 
+# K = 20
+# N = 30
+# T = 10000
 
+# A = make_A(K,N)
+# Sigma = make_Sigma(K,N,rank=K+10,epsilon=1,rho_bounds=rho_bounds_1,lambda_=lambda_1,seed=None,normalize=False)
+# S = make_S(Sigma,T)
+# X = make_X(S,A)
+# X_,U = whiten_data_torch(X)
+# A_ = torch.einsum('nNk,Nvk->nvk',U,A)    
+# Rx_ = torch.einsum('NTK,MTJ->KJNM',X_,X_)/T
+# Winit = make_A(K,N)
+# Cinit = make_Sigma(K,N,rank=K+10)
 
+# res = titan_iva_g_reg_torch(Rx_,Winit=Winit,Cinit=Cinit,nu=0,gamma_w=0.99,gamma_c=1.99)
+
+# print(res['times'])
+# print(joint_isi_torch(res['W'],A_))
 
 
    
