@@ -12,8 +12,8 @@ def sym(A):
 
 
 def cov_X(X):
-    _,T,_ = X.size()
-    Rx = torch.einsum('NTK,MTJ->KJNM',X,X) / T
+    _,V,_ = X.size()
+    Rx = torch.einsum('NVK,MVJ->KJNM',X,X) / V
     return Rx
 
 
@@ -22,18 +22,18 @@ def covid(X):
     Computes the covariance matrix of the input tensor X.
     Parameters
     ----------
-        X (torch.FloatTensor): input tensor,size B x N x T x K
+        X (torch.FloatTensor): input tensor,size B x N x V x K
     Returns
     -------
         Rx (torch.FloatTensor): covariance matrix,size B x K x K x N x N
     """
-    B,N,T,K = X.size()
+    B,N,V,K = X.size()
     
     # Debugging prints
     print(f"Input X shape: {X.shape}")
     
     try:
-        Rx = torch.einsum('bntk,bmtj->bkjmn',X,X) / T
+        Rx = torch.einsum('bnvk,bmvj->bkjmn',X,X) / V
         print("Successfully computed covariance matrix")
     except RuntimeError as e:
         print(f"Error in einsum operation: {e}")

@@ -1,11 +1,12 @@
 class ExperimentReporter:
     
-    def __init__(self,algos,dataparameters,dataparameters_titles,common_parameters,N_exp=100,table_fontsize=8,median=False,std=False,updates=False,legend=True,legend_fontsize=10,title_fontsize=10):
-        self.output_folder = 
-        self.algos = algos
-        self.dataparameters = dataparameters
-        self.dataparameters_titles = data_parameters_titles
-        self.common_parameters = common_parameters
+    def __init__(self,experiment,N_exp=100,table_fontsize=8,median=False,std=False,updates=False,legend=True,legend_fontsize=12,title_fontsize=14):
+        self.experiment = experiment
+        self.output_folder = self.experiment.output_folder
+        self.algos = self.experiment.algos
+        self.dataparameters = self.experiment.dataparameters
+        self.dataparameters_titles = self.experiment.data_parameters_titles
+        self.common_parameters = self.experiment.common_parameters
         self.table_fontsize = table_fontsize
         self.median = median
         self.std = std

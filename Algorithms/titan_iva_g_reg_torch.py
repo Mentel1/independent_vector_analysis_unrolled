@@ -58,9 +58,6 @@ def compute_L_W(C,Rx,nu,l_inf,boost):
 def titan_iva_g_reg_torch(Rx,alpha=1,gamma_c=1,gamma_w=0.99,max_iter=20000,max_iter_int_W=15,max_iter_int_C=1,crit_int=1e-10,crit_ext=1e-10,init_method='random',Winit=None,Cinit=None,epsilon=10**(-12),zeta=1e-3,track_times=True,track_costs=False,track_jisi=False,track_diffs=False,track_schemes=False,track_shifts=False,A=None,nu=0.5,adaptative_gamma_w=False,gamma_w_decay=0.9,boost=False,seed=None):
     alpha,gamma_c,gamma_w,N,K,rho_Rx = init_data_param(Rx,alpha,gamma_c,gamma_w)
     #Empiriquement,prend des valeurs entre 1 et 3 après whitening
-    print(rho_Rx)
-    Rx_batch = Rx.unsqueeze(0)
-    print(spectral_norm_extracted(Rx_batch,K,N))
     W,C = initialize(N,K,init_method=init_method,Winit=Winit,Cinit=Cinit,seed=seed)
     rho_bar = max(spectral_norm_torch(C),3*K*(1+torch.sqrt(1/(2*alpha*gamma_c))))
     l_sup = max((gamma_w*alpha)/(1-gamma_w),rho_Rx*rho_bar)

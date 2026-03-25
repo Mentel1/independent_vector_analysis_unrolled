@@ -17,7 +17,7 @@ class ComparisonExperimentIvaG:
 
 # L'idée de cette classe est de créer un objet "expérience" qui est déterminé par son nom (lié au mode de l'expérience, mais pas que, à voir au cas par cas), par la date à laquelle elle est lancée, et qui contient/fabrique les résultats sous forme de données dans les algos qu'elle implique ou dans des dossiers qui peuvent ou pas contenir des graphes. On veut pouvoir recréer un objet expérience à partir d'un dossier pour retravailler les données calculées et les présenter différemment par exemple
       
-    def __init__(self,name,dataparameters,dataparameters_titles,common_parameters,algos,mode='multiparam',date=None,T=10000,N_exp=100,updates=False):
+    def __init__(self,name,dataparameters,dataparameters_titles,common_parameters,algos,mode='multiparam',date=None,V=10000,N_exp=100,updates=False):
         self.algos = algos
         self.N_exp = N_exp
         self.mode = mode
@@ -33,14 +33,14 @@ class ComparisonExperimentIvaG:
             self.date = now.strftime("%Y-%m-%d_%H-%M")
             self.exists_setup = False
         self.output_folder = f'Result_data/experiments/{self.date}_{self.name}'
-        self.T = T
+        self.V = V
         self.updates = updates
         self.setup = {}
     
     
     def to_dict(self):
         algo_names = [algo.name for algo in self.algos]
-        return {'N_exp':self.N_exp,'name':self.name,'common_parameters':self.common_parameters,'dataparameters':self.dataparameters,'dataparameters_titles':self.dataparameters_titles,'mode':self.mode,'T':self.T,'date':self.date,'table_fontsize':self.table_fontsize,'median':self.median,'std':self.std,'legend':self.legend,'title_fontsize':self.title_fontsize,'legend_fontsize':self.legend_fontsize,'algo_names':algo_names}
+        return {'N_exp':self.N_exp,'name':self.name,'common_parameters':self.common_parameters,'dataparameters':self.dataparameters,'dataparameters_titles':self.dataparameters_titles,'mode':self.mode,'V':self.V,'date':self.date,'table_fontsize':self.table_fontsize,'median':self.median,'std':self.std,'legend':self.legend,'title_fontsize':self.title_fontsize,'legend_fontsize':self.legend_fontsize,'algo_names':algo_names}
         
         
     def save(self):
@@ -107,11 +107,12 @@ class ComparisonExperimentIvaG:
         for a,dataparam in enumerate(self.dataparameters):
             for ik,K in enumerate(Ks):
                 for jn,N in enumerate(Ns):
-                    noise_levels,num_samples = dataparam.get('noise_levels',[0]),dataparam.get('num_samples',[self.T])
+                    noise_levels,num_samples = dataparam.get('noise_levels',[0]),dataparam.get('num_samples',[self.V])
                     param_path = f'{self.dataparameters_titles[a]}/N_{N}_K_{K}'
                     if self.exists_setup:
                         self.get_data_from_folder(param_path)
                     else:
+                        dataset_path = f'Result_data/datasets/{self.dataparameters_titles[a]}/N_{N}_K_{K}/test'
                         self.create_data(dataparam,K,N)
                     param_path_extended = param_path
                     for num_sample_idx,num_sample in enumerate(num_samples):
@@ -143,29 +144,55 @@ class ComparisonExperimentIvaG:
         full_path = f'{self.output_folder}/res/{param_path}'
         return os.path.exists(full_path) and len(os.listdir(full_path)) > 0
 
-    def create_data(self,dataparam,K,N):
-        epsilon,rho_bounds,lambda_,rank,noise_levels,num_samples = dataparam.get('epsilon',1),dataparam.get('rho_bounds',[0.4,0.6]),dataparam.get('lambda',0.1),dataparam.get('rank',K+10),dataparam.get('noise_levels',[0]),dataparam.get('num_samples',[self.T])
+    def create_data(self,dataparam,K,N,dataset_path=None):
+        
+        # Getting the parameters of the data generation
+        epsilon,rho_bounds,lambda_,rank,noise_levels,num_samples = dataparam.get('epsilon',1),dataparam.get('rho_bounds',[0.4,0.6]),dataparam.get('lambda',0.1),dataparam.get('rank',K+10),dataparam.get('noise_levels',[0]),dataparam.get('num_samples',[self.V])
+        
+        # Initialization of the setup
         self.setup['Rxs'] = torch.zeros((self.N_exp,len(num_samples),len(noise_levels),K,K,N,N))
         self.setup['As'] = torch.zeros((self.N_exp,len(num_samples),N,N,K))
         self.setup['Winits'] = torch.zeros((self.N_exp,N,N,K))
         self.setup['Cinits'] = torch.zeros((self.N_exp,K,K,N))
+        
+        use_datasets = (dataset_path is not None and os.path.exists(dataset_path) and len(num_samples) == 1 and len(noise_levels) == 1)
+        
+        if use_dataset:
+            data = torch.load(dataset_path, weights_only=True)
+            if len(data) >= self.N_exp:
+                print(f'Loading data from {dataset_path}')
+                self._fill_setup_from_dataset(data)
+                return
+            else:
+                print(f'Dataset has only {len(data)} examples, need {self.N_exp} — falling back to synthetic generation')
+        
         for exp in range(self.N_exp):
             A = make_A(K,N)
             Sigma = make_Sigma(K,N,rank=rank,epsilon=epsilon,rho_bounds=rho_bounds,lambda_=lambda_,seed=None,normalize=False)
-            S = make_S(Sigma,self.T)
+            S = make_S(Sigma,self.V)
             X = make_X(S,A)
             for num_sample_idx,num_sample in enumerate(num_samples):
                 X_alt = X[:,:num_sample,:]
                 X_,U = whiten_data_torch(X_alt)
                 A_ = torch.einsum('nNk,Nvk->nvk',U,A)    
-                Rx_ = torch.einsum('NTK,MTJ->KJNM',X_,X_)/num_sample
+                Rx_ = torch.einsum('NVK,MVJ->KJNM',X_,X_)/num_sample
                 for noise_level_idx,noise_level in enumerate(noise_levels):
                     for k in range(K):
                         Rx_[k,k,:,:] += noise_level*np.eye(N)
-                    self.setup['Rxs'][exp,num_sample_idx,noise_level_idx,:,:,:,:] = Rx_
-                    self.setup['As'][exp,num_sample_idx,:,:,:] = A_
-            self.setup['Winits'][exp,:,:,:] = make_A(K,N)
-            self.setup['Cinits'][exp,:,:,:] = make_Sigma(K,N,rank=K+10)
+                    self.setup['Rxs'][exp,num_sample_idx,noise_level_idx] = Rx_
+                    self.setup['As'][exp,num_sample_idx] = A_
+            self.setup['Winits'][exp] = make_A(K,N)
+            self.setup['Cinits'][exp] = make_Sigma(K,N,rank=K+10)
+            
+    def _fill_setup_from_dataset(data):
+        for exp in range(self.N_exp):
+            Rx,Winit,Cinit,A = data[exp]
+            # Pas de variation de num_samples/noise_levels depuis le dataset
+            # on remplit uniquement l'index [0,0] 
+            self.setup['Rxs'][exp,0,0] = Rx
+            self.setup['As'][exp,0] = A
+            self.setup['Winits'][exp] = Winit
+            self.setup['Cinits'][exp] = Cinit
             
             
     def compute_empirical_convergence(self,a,K,N,res_vars=['jisi','costs','times'],detailed=True,exp=0):

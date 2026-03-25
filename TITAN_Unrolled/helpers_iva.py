@@ -145,9 +145,9 @@ def _bss_isi(W, A, s=None):
         true mixing matrix of dimension N x N x K or p x N
 
     s : torch.Tensor, optional
-        true sources of dimension N x T x K or N x T
+        true sources of dimension N x V x K or N x V
 
-    (p: #sensors, N: #sources, M: #estimatedsources, K: #datasets, T: #samples)
+    (p: #sensors, N: #sources, M: #estimatedsources, K: #datasets, V: #samples)
 
     Returns
     -------
@@ -287,13 +287,13 @@ def whiten_data(x, dim_red=None):
         dim_red = x.shape[0]
 
     if x.ndim == 2:
-        N, T = x.shape
+        N, V = x.shape
 
         # Step 1. Center the data.
         x_zm = x - torch.mean(x, dim=1, keepdim=True)
 
         # Step 2. Form MLE of data covariance.
-        covar = sym(torch.matmul(x_zm, x_zm.transpose(0, 1)) / T) + 1e-4 * torch.eye(N, dtype=x.dtype, device=x.device)
+        covar = sym(torch.matmul(x_zm, x_zm.transpose(0, 1)) / V) + 1e-4 * torch.eye(N, dtype=x.dtype, device=x.device)
 
         # Step 3. Eigen decomposition of covariance.
         eigval, eigvec = torch.linalg.eigh(covar)
@@ -309,7 +309,7 @@ def whiten_data(x, dim_red=None):
         z = torch.matmul(V, x_zm)
 
     else:
-        N, T, K = x.shape
+        N, V, K = x.shape
 
         eigval = torch.zeros((N, K), dtype=x.dtype, device=x.device)
         eigvec = torch.zeros((N, N, K), dtype=x.dtype, device=x.device)
@@ -320,7 +320,7 @@ def whiten_data(x, dim_red=None):
             x_zm[:, :, k] = x[:, :, k] - torch.mean(x[:, :, k], dim=1, keepdim=True)
 
             # Step 2. Form MLE of data covariance.
-            covar = torch.matmul(x_zm[:, :, k], x_zm[:, :, k].transpose(0, 1)) / T + 1e-4 * torch.eye(N, dtype=x.dtype, device=x.device)
+            covar = torch.matmul(x_zm[:, :, k], x_zm[:, :, k].transpose(0, 1)) / V + 1e-4 * torch.eye(N, dtype=x.dtype, device=x.device)
 
             # Step 3. Eigen decomposition of covariance.
             eigval[:, k], eigvec[:, :, k] = torch.linalg.eigh(covar)
@@ -344,7 +344,7 @@ def whiten_data(x, dim_red=None):
 
 
 def _comp_l_sos_cost(W, Y, const_log=None, scale_sources=False):
-    N, T, K = Y.shape
+    N, V, K = Y.shape
     cost = 0
     xi_shape = K + 1  # .. Modified by Suchita Bhinge... September 14 2018
     if const_log is None:
@@ -353,15 +353,15 @@ def _comp_l_sos_cost(W, Y, const_log=None, scale_sources=False):
 
     if scale_sources:
         for k in range(K):
-            ypower = torch.diag(1 / T * torch.matmul(Y[:, :, k], torch.conj(Y[:, :, k].t())))
+            ypower = torch.diag(1 / V * torch.matmul(Y[:, :, k], torch.conj(Y[:, :, k].t())))
             W[:, :, k] /= torch.sqrt(ypower)[:, None]
 
     for k in range(K):
         cost -= torch.log(torch.abs(sc.det(W[:, :, k])))
 
     for n in range(N):
-        yn = Y[n, :, :].t()  # K x T
-        CovN = 1 / T * torch.matmul(yn, torch.conj(yn.t()))
+        yn = Y[n, :, :].t()  # K x V
+        CovN = 1 / V * torch.matmul(yn, torch.conj(yn.t()))
         gip = torch.sum(torch.conj(yn) * sc.solve(CovN, yn), dim=0)
         dcost = (const_log + 0.5 * torch.log(sc.det(CovN))) + xi_shape ** 0.5 * torch.mean(
             gip ** 0.5)  # .. Modified by Suchita Bhinge... September 14 2018
@@ -394,7 +394,7 @@ def _resort_scvs(W, R_xx, whiten=False, V=None, complex_valued=False, circular=F
         Sigma_N = torch.zeros((K, K, N))
 
     for n in range(N):
-        # Efficient version of Sigma_n = 1/T * Y_n @ np.conj(Y_n.T) with Y_n = W_n @ X_n
+        # Efficient version of Sigma_n = 1/V * Y_n @ np.conj(Y_n.T) with Y_n = W_n @ X_n
         if complex_valued:
             Sigma_n = torch.zeros((K, K), dtype=torch.complex64)
         else:
@@ -407,7 +407,7 @@ def _resort_scvs(W, R_xx, whiten=False, V=None, complex_valued=False, circular=F
         Sigma_N[:, :, n] = Sigma_n
 
         if complex_valued and not circular:
-            Sigma_P_n = torch.zeros((K, K), dtype=torch.complex64)  # pseudo = 1/T * Y_n @ Y_n.T
+            Sigma_P_n = torch.zeros((K, K), dtype=torch.complex64)  # pseudo = 1/V * Y_n @ Y_n.T
             for k1 in range(K):
                 for k2 in range(k1, K):
                     Sigma_P_n[k1, k2] = W[n, :, k1] @ P_xx[:, :, k1, k2] @ W[n, :, k2]

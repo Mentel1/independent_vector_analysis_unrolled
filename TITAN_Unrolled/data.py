@@ -70,35 +70,35 @@ def make_Sigma(K,N,rank,epsilon=1,rho_bounds=[0.4,0.6],lambda_=0.25,seed=None,no
 
 
 
-""" def make_S(Sigma,T):
+""" def make_S(Sigma,V):
     _,K,N = Sigma.size()
-    S = torch.zeros(N,T,K)
+    S = torch.zeros(N,V,K)
     mean = torch.zeros(K)
     for n in range(N):
-        S[n,:,:] = torch.tensor(np.random.multivariate_normal(mean,Sigma[:,:,n],T))
-        #S[n,:,:] = torch.normal(mean,torch.sqrt(Sigma[:,:,n]),(T,K))
+        S[n,:,:] = torch.tensor(np.random.multivariate_normal(mean,Sigma[:,:,n],V))
+        #S[n,:,:] = torch.normal(mean,torch.sqrt(Sigma[:,:,n]),(V,K))
     return S """
 
-def make_S(Sigma,T,device='cpu',dtype=torch.float64):
+def make_S(Sigma,V,device='cpu',dtype=torch.float64):
     _,K,N = Sigma.size()
-    S = torch.zeros(N,T,K,device=device,dtype=dtype)
+    S = torch.zeros(N,V,K,device=device,dtype=dtype)
     mean = torch.zeros(K,device=device,dtype=dtype)
     for n in range(N):
         cov_matrix = Sigma[:,:,n]
         mvn = torch.distributions.MultivariateNormal(mean,cov_matrix)
-        S[n,:,:] = mvn.sample((T,))
+        S[n,:,:] = mvn.sample((V,))
     return S
 
 
 def make_X(S,A):
-    X = torch.einsum('MNK,NTK -> MTK',A,S)
+    X = torch.einsum('MNK,NVK -> MVK',A,S)
     return X
 
 
-def generate_whitened_problem(T,K,N,epsilon=1,rho_bounds=[0.4,0.6],lambda_=0.25,device='cpu',dtype=torch.float64,only_sos=True): 
+def generate_whitened_problem(V,K,N,epsilon=1,rho_bounds=[0.4,0.6],lambda_=0.25,device='cpu',dtype=torch.float64,only_sos=True): 
     A = make_A(K,N,dtype=dtype)
     Sigma = make_Sigma(K,N,rank=K+10,epsilon=epsilon,rho_bounds=rho_bounds,lambda_=lambda_,seed=None,normalize=False,dtype=dtype)
-    S = make_S(Sigma,T,dtype=dtype)
+    S = make_S(Sigma,V,dtype=dtype)
     X = make_X(S,A)
     X_,U = whiten_data(X)
     A_ = torch.einsum('nNk,Nvk->nvk',U,A)

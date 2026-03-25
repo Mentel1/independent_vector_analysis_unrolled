@@ -8,9 +8,9 @@ def sym_torch(A):
         return (A + torch.moveaxis(A, 0, 1)) / 2
     
 """ def cov_X(X):
-    N, T, K = X.size()
-    vec_X = X.permute(2, 0, 1).reshape(K * N, T)
-    Lambda = torch.matmul(vec_X, vec_X.t()) / T
+    N, V, K = X.size()
+    vec_X = X.permute(2, 0, 1).reshape(K * N, V)
+    Lambda = torch.matmul(vec_X, vec_X.t()) / V
     return Lambda """
 
 

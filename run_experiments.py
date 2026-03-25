@@ -34,7 +34,6 @@ def create_algos_titanIVAG(varying_param, values, color_bounds=[(0.2,1,0.2),(0.2
     return algos
 
 
-
 #================================================================================================
 # MAIN EXPERIMENT (MULTIPARAMETER)
 #================================================================================================
@@ -56,7 +55,6 @@ dataparameters_titles_multiparam = ['Case_A'] #,'Case_B','Case_C','Case_D']
 
 Ks = [20]
 Ns = [30] 
-
 common_parameters = [Ks,Ns]
 
 algos = []
@@ -67,20 +65,20 @@ for archi in ['tied','untied','inertial-tied','inertial-untied']:
     algos.append(algo)
 
 
-exp = ComparisonExperimentIvaG(name='Testing_unrolling',dataparameters=[{'rho_bounds':rho_bounds_1,'lambda':lambda_1}],dataparameters_titles=['Case_A'],common_parameters=common_parameters,algos=algos,N_exp=100)
+exp = ComparisonExperimentIvaG(name='Unrolling_comparison',dataparameters=[{'rho_bounds':rho_bounds_1,'lambda':lambda_1}],dataparameters_titles=['Case_A'],common_parameters=common_parameters,algos=algos,N_exp=100)
 exp.compute_multi_runs()
 
 # K = 20
 # N = 30
-# T = 10000
+# V = 10000
 
 # A = make_A(K,N)
 # Sigma = make_Sigma(K,N,rank=K+10,epsilon=1,rho_bounds=rho_bounds_1,lambda_=lambda_1,seed=None,normalize=False)
-# S = make_S(Sigma,T)
+# S = make_S(Sigma,V)
 # X = make_X(S,A)
 # X_,U = whiten_data_torch(X)
 # A_ = torch.einsum('nNk,Nvk->nvk',U,A)    
-# Rx_ = torch.einsum('NTK,MTJ->KJNM',X_,X_)/T
+# Rx_ = torch.einsum('NVK,MVJ->KJNM',X_,X_)/V
 # Winit = make_A(K,N)
 # Cinit = make_Sigma(K,N,rank=K+10)
 

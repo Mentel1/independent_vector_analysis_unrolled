@@ -8,53 +8,24 @@ from .architecture import *
 from .data import *
 from .tools import *
 from .functions import *
-from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
+from .datasets import *
 from torch.utils.tensorboard import SummaryWriter
 import os
 import sys
- 
-class IVAGDataset(Dataset):
-    def __init__(self,data_path,dimensions=(10,10000,10),metaparameters=None,size=1000,device='cpu',dtype=torch.float32):
-        self.N,self.T,self.K = dimensions
-        self.metaparameters = metaparameters
-        self.data_path = data_path
-        self.size = size
-        regenerate = True
-        if os.path.exists(self.data_path):
-            self.data = torch.load(self.data_path,weights_only=True)
-            regenerate = self.__len__() != self.size             
-        if regenerate:
-            print('creation of a new dataset')
-            self.data = [] 
-            self.num_metaparameters = len(metaparameters)
-            for i in tqdm(range(self.size)):
-                metaparam = self.metaparameters[i%self.num_metaparameters]
-                Rx,A = generate_whitened_problem(self.T,self.K,self.N,device=device,rho_bounds=metaparam[0],lambda_=metaparam[1],dtype=dtype)
-                Winit = make_A(self.K,self.N,device=device,dtype=dtype)
-                Cinit = make_Sigma(self.K,self.N,rank=self.K+10,device=device,dtype=dtype)
-                self.data.append((Rx,Winit,Cinit,A))
-            torch.save(self.data,self.data_path) 
-
-    def __len__(self):
-        return self.size  
-
-    def __getitem__(self,idx):
-        return self.data[idx]
 
 
 class UTitan:
-    def __init__(self,model_name='UTitan',archi='untied',training_mode='end-to-end',dimensions=(10,10000,10),metaparameters=None,metaparameters_title='Multi_case',train_size=1000,eval_size=200,optimizer=torch.optim.SGD,lr=1,weight_decay=0,gradient_processing='normalize',scheduler_mode='StepLR',step_size=3,gamma=0.9,patience=3,factor_lr=0.5,min_lr=0.01,N_updates_W=15,N_updates_C=1,num_epochs=20,loss_train=IVA_loss(),loss_eval=ISI_loss(),batch_size=64,num_layers=100,epsilon=1e-12,custom=False,load=True):
+    def __init__(self,model_name='UTitan',archi='untied',training_mode='end-to-end',dimensions=(10,10000,10),dataparameters=None,dataparameters_title='Multi_case',train_size=1000,eval_size=200,optimizer=torch.optim.SGD,lr=1,weight_decay=0,gradient_processing='normalize',scheduler_mode='StepLR',step_size=3,gamma=0.9,patience=3,factor_lr=0.5,min_lr=0.01,N_updates_W=15,N_updates_C=1,num_epochs=20,loss_train=IVA_loss(),loss_eval=ISI_loss(),batch_size=64,num_layers=100,epsilon=1e-12,custom=False,load=True):
         
         # Dataset information
         self.date = datetime.now().strftime("%Y-%m-%d_%H-%M")
         self.dimensions = dimensions
-        self.N,self.T,self.K = dimensions
-        self.metaparameters_title = metaparameters_title
-        self.metaparameters = metaparameters
+        self.N,self.V,self.K = dimensions
+        self.dataparameters_title = dataparameters_title
+        self.dataparameters = dataparameters
         self.train_size = train_size
         self.eval_size = eval_size
-        self.dataset_path = f'Result_data/datasets/{self.metaparameters_title}/N_{self.N}_K_{self.K}'
+        self.dataset_path = f'Result_data/datasets/{self.dataparameters_title}/N_{self.N}_K_{self.K}'
         os.makedirs(self.dataset_path,exist_ok=True)
         self.train_set_path = f'{self.dataset_path}/train'
         self.eval_set_path = f'{self.dataset_path}/eval'
@@ -105,10 +76,10 @@ class UTitan:
                 self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer,step_size=step_size,gamma=gamma)           
         self.loss_train = loss_train
         self.loss_eval = loss_eval
-        self.writer = SummaryWriter(f'runs/{self.model_name}_{archi}_{training_mode}_{opt_name}_{self.metaparameters_title}_N_{self.N}_K_{self.K}')
+        self.writer = SummaryWriter(f'runs/{self.model_name}_{archi}_{training_mode}_{opt_name}_{self.dataparameters_title}_N_{self.N}_K_{self.K}')
         
         # Model path information
-        self.model_path = f'Result_data/models/{self.metaparameters_title}/N_{self.N}_K_{self.K}/{self.model_name}_{archi}_{training_mode}_{opt_name}'
+        self.model_path = f'Result_data/models/{self.dataparameters_title}/N_{self.N}_K_{self.K}/{self.model_name}_{archi}_{training_mode}_{opt_name}'
         os.makedirs(self.model_path,exist_ok=True)
         self.parameters_path = os.path.join(self.model_path,'parameters')
         if os.path.exists(self.parameters_path) & load:
@@ -121,8 +92,8 @@ class UTitan:
         self.lr_values_path = os.path.join(self.model_path,'lr_values')
 
         # load or create datasets and data loaders 
-        self.training_set = IVAGDataset(data_path=self.train_set_path,dimensions=self.dimensions,metaparameters=self.metaparameters,size=self.train_size,device=self.device)
-        self.eval_set = IVAGDataset(data_path=self.eval_set_path,dimensions=self.dimensions,metaparameters=self.metaparameters,size=self.eval_size,device=self.device)
+        self.training_set = IVAGDataset(data_path=self.train_set_path,dimensions=self.dimensions,dataparameters=self.dataparameters,size=self.train_size,device=self.device)
+        self.eval_set = IVAGDataset(data_path=self.eval_set_path,dimensions=self.dimensions,dataparameters=self.dataparameters,size=self.eval_size,device=self.device)
         self.training_loader = DataLoader(self.training_set,batch_size=self.batch_size,shuffle=True)
         self.eval_loader = DataLoader(self.eval_set,batch_size=self.batch_size,shuffle=True)
         self.num_batches = math.ceil(self.training_set.size/self.batch_size)
@@ -235,7 +206,7 @@ class UTitan:
     def compute_trajectory(self,loader=None,write=True,epoch=None,batch=None,record_layer_improvements=False):
         global_step = epoch * len(self.training_loader) + batch + 1
         if loader == None:
-            eval_set = IVAGDataset(data_path=self.eval_set_path,dimensions=self.dimensions,metaparameters=self.metaparameters,size=self.eval_size,device=self.device)
+            eval_set = IVAGDataset(data_path=self.eval_set_path,dimensions=self.dimensions,dataparameters=self.dataparameters,size=self.eval_size,device=self.device)
             loader = DataLoader(eval_set,batch_size=self.batch_size,shuffle=True)
         for _,(Rx,Winit,Cinit,A) in enumerate(loader):
             with torch.no_grad():                        
@@ -272,7 +243,7 @@ class UTitan:
         
     def select_num_layers(self,loader=None,tol=1e-2):
         if loader == None:
-            eval_set = IVAGDataset(data_path=self.eval_set_path,dimensions=self.dimensions,metaparameters=self.metaparameters,size=self.eval_size,device=self.device)
+            eval_set = IVAGDataset(data_path=self.eval_set_path,dimensions=self.dimensions,dataparameters=self.dataparameters,size=self.eval_size,device=self.device)
             loader = DataLoader(eval_set,batch_size=self.batch_size,shuffle=True)
         Rx,Winit,Cinit,A = next(iter(loader))
         outputs = self.model(Rx,Winit,Cinit,track_jisi=True,A=A,track_cost=False)
