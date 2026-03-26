@@ -157,7 +157,7 @@ class ComparisonExperimentIvaG:
         
         use_datasets = (dataset_path is not None and os.path.exists(dataset_path) and len(num_samples) == 1 and len(noise_levels) == 1)
         
-        if use_dataset:
+        if use_datasets:
             data = torch.load(dataset_path, weights_only=True)
             if len(data) >= self.N_exp:
                 print(f'Loading data from {dataset_path}')
@@ -173,7 +173,7 @@ class ComparisonExperimentIvaG:
             X = make_X(S,A)
             for num_sample_idx,num_sample in enumerate(num_samples):
                 X_alt = X[:,:num_sample,:]
-                X_,U = whiten_data_torch(X_alt)
+                X_,U = whiten_data(X_alt)
                 A_ = torch.einsum('nNk,Nvk->nvk',U,A)    
                 Rx_ = torch.einsum('NVK,MVJ->KJNM',X_,X_)/num_sample
                 for noise_level_idx,noise_level in enumerate(noise_levels):
