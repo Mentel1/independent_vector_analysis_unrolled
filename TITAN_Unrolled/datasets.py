@@ -25,7 +25,10 @@ class IVAGDataset(Dataset):
                 Winit = make_A(self.K,self.N,device=device,dtype=dtype)
                 Cinit = make_Sigma(self.K,self.N,rank=self.K+10,device=device,dtype=dtype)
                 self.data.append((Rx,Winit,Cinit,A))
-            torch.save(self.data,self.data_path) 
+            torch.save(self.data,self.data_path)
+        # else:
+        #     print('dataset is already good')
+        
 
     def __len__(self):
         return self.size  
@@ -34,32 +37,32 @@ class IVAGDataset(Dataset):
         return self.data[idx]
 
 
-#====================================================================================================
+#===================================================================================================
 # DATASETS CREATION
-#====================================================================================================
+#===================================================================================================
 
 
-def get_dataparameters(rhos,lambdas):
-    dataparameters_multiparam = []
-    for rho_bounds in rhos:
-        for lambda_ in lambdas:
-            dataparameters_multiparam.append((rho_bounds,lambda_))
-    return dataparameters_multiparam
+# def get_dataparameters(rhos,lambdas):
+#     dataparameters_multiparam = []
+#     for rho_bounds in rhos:
+#         for lambda_ in lambdas:
+#             dataparameters_multiparam.append((rho_bounds,lambda_))
+#     return dataparameters_multiparam
 
-lambda_1 = 0.04
-lambda_2 = 0.25
-rho_bounds_1 = [0.2,0.3]
-rho_bounds_2 = [0.6,0.7]
-rhos = [rho_bounds_1,rho_bounds_2]
-lambdas = [lambda_1,lambda_2]
+# lambda_1 = 0.04
+# lambda_2 = 0.25
+# rho_bounds_1 = [0.2,0.3]
+# rho_bounds_2 = [0.6,0.7]
+# rhos = [rho_bounds_1,rho_bounds_2]
+# lambdas = [lambda_1,lambda_2]
 
-dataparameters_multiparam = get_dataparameters(rhos,lambdas)
-dataparameters_titles = ['Case_A','Case_B','Case_C','Case_D']
+# dataparameters_multiparam = get_dataparameters(rhos,lambdas)
+# dataparameters_titles = ['Case_A','Case_B','Case_C','Case_D']
 
-size = 100
-for numcase in range(4):
-    for K in [5,10,20]:
-        for N in [10,20,30]:
-            dimensions = (N,10000,K)
-            data_path = f'Result_data/datasets/{dataparameters_titles[numcase]}/N_{N}_K_{K}/test'
-            dataset = IVAGDataset(data_path=data_path,dimensions=dimensions,dataparameters=[dataparameters_multiparam[numcase]],size=size)
+# size = 200
+# for numcase in range(4):
+#     for K in [5,10,20]:
+#         for N in [10,20,30]:
+#             dimensions = (N,10000,K)
+#             data_path = f'Result_data/datasets/{dataparameters_titles[numcase]}/N_{N}_K_{K}/eval'
+#             dataset = IVAGDataset(data_path=data_path,dimensions=dimensions,dataparameters=[dataparameters_multiparam[numcase]],size=size)

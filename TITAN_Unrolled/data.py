@@ -111,11 +111,11 @@ def generate_whitened_problem(V,K,N,epsilon=1,rho_bounds=[0.4,0.6],lambda_=0.25,
         return Rx,A_
 
 
-def get_metaparameters(rhos,lambdas):
-    metaparameters_multiparam = []
+def get_dataparameters(rhos,lambdas):
+    dataparameters_multiparam = []
     for rho_bounds in rhos:
         for lambda_ in lambdas:
-            metaparameters_multiparam.append((rho_bounds,lambda_))
-    return metaparameters_multiparam
+            dataparameters_multiparam.append((rho_bounds,lambda_))
+    return dataparameters_multiparam
 
 

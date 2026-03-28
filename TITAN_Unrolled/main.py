@@ -55,6 +55,7 @@ parser.add_argument('--num_case',type=int, default=0)
 parser.add_argument('--opt', type=str, default='SGD', choices=['SGD', 'Adam'])
 parser.add_argument('--training_mode', type=str, default='local', choices=['local', 'end-to-end'])
 parser.add_argument('--archi', type=str, default='untied', choices=['tied', 'untied', 'inertial-tied', 'inertial-untied'])
+parser.add_argument('--num_layers', type=int, default=500)
 parser.add_argument('--step_size', type=int, default=5)
 args = parser.parse_args()
 
@@ -67,6 +68,7 @@ opt = args.opt
 training_mode = args.training_mode
 archi = args.archi
 step_size = args.step_size
+num_layers = args.num_layers
 
 
 # for opt in ['SGD','Adam']:

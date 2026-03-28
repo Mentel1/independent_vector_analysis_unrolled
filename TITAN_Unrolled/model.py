@@ -162,7 +162,8 @@ class UTitan:
                         self.scheduler.step()
                 self.writer.add_scalar('Loss/jisi-eval',self.eval_trajectories_record_jisi[epoch,batch,-1], global_step)
                 self.writer.add_scalar('Loss/jiva-eval',self.eval_trajectories_record_jiva[epoch,batch,-1], global_step)
-            min_epochs = 1 if (self.model.tied and self.training == 'local') else 3
+            min_epochs = 1 if (self.model.tied and self.training_mode == 'local') else 3
+# juste avant la condition d'arrêt
             if epoch >= min_epochs and torch.mean(self.eval_trajectories_record_jiva[epoch,:,-1]).item() > torch.mean(self.eval_trajectories_record_jiva[epoch-1,:,-1]).item() or self.nan_detected:
                 torch.save((epoch,batch),self.model_path+'/ending_step')
                 break
@@ -226,7 +227,7 @@ class UTitan:
                 if 'beta' not in self.param_names[j]:
                     self.param_values_records[epoch,batch,i,j] = self.model.Layers[i].soft(param).item()
                 else:
-                    self.param_values_records[epoch,batch,i,j] *= 0.1
+                    self.param_values_records[epoch,batch,i,j] = self.model.Layers[i].soft(param).item()*0.1
                 if param.grad != None:
                     self.grad_values_records[epoch,batch,i,j] = param.grad.item()
                 else:
