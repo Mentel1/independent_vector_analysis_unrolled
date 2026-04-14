@@ -5,8 +5,9 @@ import inspect
 from Algorithms.iva_g_torch import *
 from Algorithms.algebra_toolbox_torch import *
 from Algorithms.titan_iva_g_reg_torch import *
-from TITAN_Unrolled.model import *
+# from TITAN_Unrolled.model import *
 from TITAN_Unrolled.architecture import *
+from TITAN_Unrolled.datasets import *
 
 class IvaGAlgorithms:
 
@@ -88,7 +89,7 @@ class IvaG(IvaGAlgorithms):
 
 class TitanIvaG(IvaGAlgorithms):    
 
-    def __init__(self,color='b',name='titan',legend='TITAN-IVA-G',nu=0.5,max_iter=20000,max_iter_int_W=15,max_iter_int_C=1,crit=1e-10,epsilon=1e-12,zeta=1e-3,gamma_w=0.99,gamma_c=1,alpha=1,init_method='random',seed=None,boost=False,exactC=False,device='cuda:0'):
+    def __init__(self,color='b',name='titan',legend='TITAN-IVA-G',nu=0.5,max_iter=20000,max_iter_int_W=15,max_iter_int_C=1,crit=1e-10,epsilon=1e-12,zeta=1e-3,gamma_w=0.99,gamma_c=1,alpha=1,init_method='random',seed=None,boost=False,exactC=False,device='cuda'):
         super().__init__(name=name,legend=legend,color=color)
         self.crit_int = crit # remettre les deux arguments séparés après avoir fini le manuscrit
         self.crit_ext = crit
@@ -136,12 +137,16 @@ class TitanIvaG(IvaGAlgorithms):
     
 class UTitanIvaG(IvaGAlgorithms):    
 
-    def __init__(self,color='b',name='Utitan',legend='U-TITAN-IVA-G',seed=None,dimensions=(30,10000,20),metaparameters_title='Case_A',archi='untied',training_mode='local',optimizer=torch.optim.SGD,gradient_processing='normalize',batch_size=100,num_layers=500,N_updates_W=10,step_size=5,device='cuda:0'):
+    def __init__(self,color='b',name='Utitan',legend='U-TITAN-IVA-G',dimensions=(30,10000,20),data_case='Case_A',archi='untied',num_layers=500,tol=1e-2,N_updates_W=10,N_updates_C=1,training_mode='local',opt_name ='SGD',gradient_processing='normalize',step_size=5,device='cuda'):
         super().__init__(name=name,legend=legend,color=color)
         self.device = torch.device(device if torch.cuda.is_available() else 'cpu')
-        self.pipeline = UTitan(model_name='UTitan'+ str(step_size),archi=archi,training_mode='local',dimensions=dimensions,metaparameters_title=metaparameters_title,optimizer=optimizer,gradient_processing=gradient_processing,step_size=step_size,num_layers=num_layers,batch_size=batch_size,N_updates_W=N_updates_W,load=True)
-        self.model = self.pipeline.model.to('cuda:0')
-        
+        self.dimensions = N,_,K = dimensions
+        self.data_case = data_case
+        self.N_updates_W = N_updates_W
+        parameters_path=f'Result_data/models/{data_case}/N_{N}_K_{K}/UTitan{step_size}_{archi}_{training_mode}_{opt_name}_{gradient_processing}/parameters'
+        self.model = UTitanIVAGModel(N,K,num_layers,N_updates_W=N_updates_W,N_updates_C=N_updates_C,archi=archi,load=True,parameters_path=parameters_path).to(self.device)
+        self.tol = tol
+        self.shorten_model()        
 
     def to_dict(self):
         return {'class': self.__class__.__name__, 'color': self.color,'name': self.name,'legend': self.legend,'model':self.model}
@@ -150,10 +155,7 @@ class UTitanIvaG(IvaGAlgorithms):
     def from_dict(cls, config):
         """Reconstruit un algo depuis un dictionnaire"""
         return cls(**config)
-    
-    def _get_base_params(self):
-        return {'seed':self.seed}
-              
+
     def _fill_experiment(self,exp,Rx,A,**kwargs):
         Rx_batch = Rx.unsqueeze(0)
         Winit_batch = kwargs['Winit'].unsqueeze(0)
@@ -169,5 +171,27 @@ class UTitanIvaG(IvaGAlgorithms):
         self.results['total_times'][exp] = end - start
         self.results['final_jisi'][exp] = joint_isi_torch(res['W'].squeeze(),A)
         if kwargs.get('count_updates',False):
-            self.results['number_updates'][exp] = self.model.num_layers*10 #Hardcodé pour le moment mais le 10 doit être remplacé par N_updates_W lors de la prochaine refonte.
+            self.results['number_updates'][exp] = self.model.num_layers*self.N_updates_W 
             
+    def select_num_layers(self):
+        eval_set = IVAGDataset(name='eval',dimensions=self.dimensions,data_case=self.data_case,device=self.device)
+        loader = DataLoader(eval_set,batch_size=eval_set.__len__())
+        Rx,Winit,Cinit,A = next(iter(loader))
+        outputs = self.model(Rx,Winit,Cinit,track_jisi=True,A=A,track_cost=False)
+        L = self.model.num_layers - 1
+        jisi_scores = outputs['jisi']
+        crit = jisi_scores[L]*(1 + self.tol)
+        jisi = jisi_scores[L]
+        while jisi < crit and L > 0:
+            L -= 1
+            jisi = jisi_scores[L]
+        return L
+            
+    def shorten_model(self,save=False):
+        L = self.select_num_layers()
+        if not self.model.tied:
+            self.model.Layers = self.model.Layers[:L]
+        self.model.num_layers = L
+        if save:
+            torch.save(self.model.state_dict(),self.parameters_path + '_shortened')
+        print(f'succesfully shortened the model! Down to {L} layers!')

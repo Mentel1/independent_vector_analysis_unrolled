@@ -7,20 +7,6 @@ from algorithms import *
 from Algorithms.titan_iva_g_reg_torch import *
 from TITAN_Unrolled.data import *
 
-label_size = 20
-mpl.rcParams['xtick.labelsize'] = label_size
-mpl.rcParams['ytick.labelsize'] = label_size
-plt.rcParams['text.usetex'] = True
-
-# Function to generate dataparameters for the multiparameter experiment
-def get_dataparameters(rhos,lambdas):
-    dataparameters_multiparam = []
-    for rho_bounds in rhos:
-        for lambda_ in lambdas:
-            dataparameters_multiparam.append((rho_bounds,lambda_))
-    return dataparameters_multiparam
-
-
 def create_algos_titanIVAG(varying_param, values, color_bounds=[(0.2,1,0.2),(0.2,0.2,1)],base_params={},basename=''):
     algos = []
     nval = len(values)
@@ -34,64 +20,38 @@ def create_algos_titanIVAG(varying_param, values, color_bounds=[(0.2,1,0.2),(0.2
     return algos
 
 
-#================================================================================================
+#=============================================================================================
 # MAIN EXPERIMENT (MULTIPARAMETER)
-#================================================================================================
+#=============================================================================================
 
-lambda_1 = 0.04
-lambda_2 = 0.25
-rho_bounds_1 = [0.2,0.3]
-rho_bounds_2 = [0.6,0.7]
-rhos = [rho_bounds_1] #,rho_bounds_2]
-lambdas = [lambda_1] #,lambda_2]
-dataparameters_multiparam = get_dataparameters(rhos,lambdas)
-dataparameters_titles_multiparam = ['Case_A'] #,'Case_B','Case_C','Case_D']
-# dataparameters_base = get_dataparameters([[0.4,0.6]],[0.1])
-# dataparameters_base_titles = ['Base_Case']
-# dataparameters_identifiability = [1e-2,1e-1,1]
-# dataparameters_titles_identifiability = ['low identifiability','medium identifiability','high identifiability']
-# dataparameters = [{'noise_levels':[0,1e-3,1e-2,1e-1,1,10]}]
-# dataparameters = [{'num_samples':[10000,5000,1000,500,200,150,120,100]}]
-
-Ks = [20]
-Ns = [30] 
-common_parameters = [Ks,Ns]
+Ks = [5]
+Ns = [10] 
+common_params = [Ks,Ns]
+data_case = 'Case_A'
 
 algos = []
 algos.append(TitanIvaG(nu=0,gamma_c=1.99))
 for archi in ['tied','untied','inertial-tied','inertial-untied']:
-    algo = UTitanIvaG(name='UTitan'+'_'+archi,archi=archi)
-    algo.model.num_layers = algo.pipeline.select_num_layers()
+    algo = UTitanIvaG(name='UTitan'+'_'+archi,archi=archi,dimensions=(Ns[0],10000,Ks[0]),data_case=data_case,num_layers=500)
     algos.append(algo)
 
-
-exp = ComparisonExperimentIvaG(name='Unrolling_comparison',dataparameters=[{'rho_bounds':rho_bounds_1,'lambda':lambda_1}],dataparameters_titles=['Case_A'],common_parameters=common_parameters,algos=algos,N_exp=100)
+exp = ComparisonExperimentIvaG(name='Unrolling_comparison_small',dataparams_titles=[data_case],common_params=common_params,algos=algos,N_exp=2)
 exp.compute_multi_runs()
 
-# K = 20
-# N = 30
-# V = 10000
+# exp_path = 'Result_data/experiments/2026-03-18_11-13_Testing_unrolling/res/Case_A/N_30_K_20'
+# algo_names = ['titan','UTitan_inertial-tied','UTitan_inertial-untied','UTitan_tied','UTitan_untied']
+# features = ['final_jisi','total_times']
 
-# A = make_A(K,N)
-# Sigma = make_Sigma(K,N,rank=K+10,epsilon=1,rho_bounds=rho_bounds_1,lambda_=lambda_1,seed=None,normalize=False)
-# S = make_S(Sigma,V)
-# X = make_X(S,A)
-# X_,U = whiten_data_torch(X)
-# A_ = torch.einsum('nNk,Nvk->nvk',U,A)    
-# Rx_ = torch.einsum('NVK,MVJ->KJNM',X_,X_)/V
-# Winit = make_A(K,N)
-# Cinit = make_Sigma(K,N,rank=K+10)
+# for name in algo_names:
+#     for feature in features:
+#         res_path = f'{exp_path}/{name}_{feature}'
+#         vec = np.fromfile(res_path,sep=',')
+#         print(f'Average {feature} for {name} is {np.mean(vec)} with a standard deviation of {np.std(vec)}')
+        
 
-# res = titan_iva_g_reg_torch(Rx_,Winit=Winit,Cinit=Cinit,nu=0,gamma_w=0.99,gamma_c=1.99)
-
-# print(res['times'])
-# print(joint_isi_torch(res['W'],A_))
-
-
-   
-# ================================================================================================
+#===========================================================================================
 # ANALYSIS OF THE SLOWEST SUBPROCESS
-# ================================================================================================
+#===========================================================================================
 
 # if __name__ == '__main__':
 #     import cProfile, pstats

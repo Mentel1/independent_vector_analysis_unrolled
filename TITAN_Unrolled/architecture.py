@@ -8,12 +8,9 @@ Classes
     C_iter    : computes the updates of C
     Block      : one layer in U_TITAN
     myModel    : U_TITAN model
-
-
-@author: Gaspard Blaise
-@date: 11/06/2024
 """
 
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -265,10 +262,9 @@ class Block(nn.Module):
         return W_new,C_new,W,C
     
 
-
 class UTitanIVAGModel(nn.Module):
 
-    def __init__(self,N_updates_W,N_updates_C,num_layers,epsilon,archi='untied',custom=False,N=10,K=10):
+    def __init__(self,N,K,num_layers,N_updates_W=10,N_updates_C=1,epsilon=1e-12,archi='untied',custom=False,load=False,parameters_path=''):
         super().__init__()
         self.inertial = ('inertial' in archi)
         self.tied = ('untied' not in archi)
@@ -277,6 +273,9 @@ class UTitanIVAGModel(nn.Module):
             self.Layer = Block(N_updates_W,N_updates_C,epsilon,inertial=self.inertial,custom=custom,N=N,K=K)
         else:
             self.Layers = nn.ModuleList([Block(N_updates_W,N_updates_C,epsilon,inertial=self.inertial,custom=custom,N=N,K=K) for _ in range(num_layers)])
+        if os.path.exists(parameters_path) & load:
+           self.load_state_dict(torch.load(parameters_path,weights_only=False))
+           print('Model succesfully loaded!')
         
 
     def forward(self,Rx,Winit,Cinit,learning_layers=(0,float('inf')),track_jisi=False,A=None,track_cost=False,greedy=False):

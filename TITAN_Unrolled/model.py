@@ -82,9 +82,6 @@ class UTitan:
         self.model_path = f'Result_data/models/{self.dataparameters_title}/N_{self.N}_K_{self.K}/{self.model_name}_{archi}_{training_mode}_{opt_name}'
         os.makedirs(self.model_path,exist_ok=True)
         self.parameters_path = os.path.join(self.model_path,'parameters')
-        if os.path.exists(self.parameters_path) & load:
-           self.model.load_state_dict(torch.load(self.parameters_path,weights_only=False))
-           print('Model succesfully loaded!')
         self.train_loss_path = os.path.join(self.model_path,'train_loss')
         self.eval_trajectories_path = os.path.join(self.model_path,'eval_trajectories')
         self.param_values_path = os.path.join(self.model_path,'param_values')
@@ -241,32 +238,6 @@ class UTitan:
             self.plot_trajectory(self.param_values_records[epoch,batch,:,idx],name,f'Values of {name}',epoch,batch,'Parameters',global_step,color=plt.cm.tab10(idx),marker='s')
             self.plot_trajectory(self.grad_values_records[epoch,batch,:,idx],'grad '+ name,f'Gradients of {name}',epoch,batch,'Parameters_gradients',global_step,color=plt.cm.tab10(idx),marker='h')
         self.plot_trajectory(self.lr_values_records[epoch,batch,:],'Learning_rates','learning rates',epoch,batch,'Training_parameters',global_step,color='k',marker='o')
-        
-    def select_num_layers(self,loader=None,tol=1e-2):
-        if loader == None:
-            eval_set = IVAGDataset(data_path=self.eval_set_path,dimensions=self.dimensions,dataparameters=self.dataparameters,size=self.eval_size,device=self.device)
-            loader = DataLoader(eval_set,batch_size=self.batch_size,shuffle=True)
-        Rx,Winit,Cinit,A = next(iter(loader))
-        outputs = self.model(Rx,Winit,Cinit,track_jisi=True,A=A,track_cost=False)
-        L = self.num_layers-1
-        jisi_scores = outputs['jisi']
-        crit = jisi_scores[L]*(1 + tol)
-        jisi = jisi_scores[L]
-        while jisi < crit and L > 0:
-            L -= 1
-            jisi = jisi = jisi_scores[L]
-        return L
-            
-    def shorten_model(self,loader=None,tol=1e-2,save=True):
-        L = self.select_num_layers(loader,tol)
-        if not self.model.tied:
-            newmodel = self.model.Layers[:L]
-        else:
-            newmodel = self.model
-        newmodel.num_layers = L
-        if save:
-            torch.save(newmodel.state_dict(),self.parameters_path + '_shortened')
-            print('succesfully shortened the model!')
 
     def plot_trajectory(self,data,name,ylabel,epoch,batch,folder,global_step,color='g',marker=''):
         fig,ax = plt.subplots(figsize=(12, 6))

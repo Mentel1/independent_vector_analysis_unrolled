@@ -1,3 +1,8 @@
+label_size = 20
+mpl.rcParams['xtick.labelsize'] = label_size
+mpl.rcParams['ytick.labelsize'] = label_size
+plt.rcParams['text.usetex'] = True
+
 class ExperimentReporter:
     
     def __init__(self,experiment,N_exp=100,table_fontsize=8,median=False,std=False,updates=False,legend=True,legend_fontsize=12,title_fontsize=14):

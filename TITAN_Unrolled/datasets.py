@@ -4,34 +4,29 @@ import torch
 from tqdm import tqdm
 import os
 from .functions import *
+from .dataparam_dict import *
 
 class IVAGDataset(Dataset):
-    def __init__(self,data_path,dimensions=(10,10000,10),dataparameters=None,size=1000,device='cpu',dtype=torch.float32):
-        self.N,self.V,self.K = dimensions
-        self.dataparameters = dataparameters
-        self.data_path = data_path
-        self.size = size
-        regenerate = True
-        if os.path.exists(self.data_path):
-            self.data = torch.load(self.data_path,weights_only=True)
-            regenerate = len(self.data) != self.size             
-        if regenerate:
+    def __init__(self,name='train',load=True,dimensions=(10,10000,10),data_case='Case_A',size=1000,device='cpu',dtype=torch.float32):
+        N,_,K = dimensions
+        self.data_case = data_case
+        self.name = name
+        self.data_path = f'Result_data/datasets/{data_case}/N_{N}_K_{K}/{name}' 
+        if load and os.path.exists(self.data_path):
+            self.data = torch.load(self.data_path,weights_only=True)             
+        else:
             print('creation of a new dataset')
-            self.data = [] 
-            self.num_dataparameters = len(dataparameters)
-            for i in tqdm(range(self.size)):
-                dataparam = self.dataparameters[i%self.num_dataparameters]
-                Rx,A = generate_whitened_problem(self.V,self.K,self.N,device=device,rho_bounds=dataparam[0],lambda_=dataparam[1],dtype=dtype)
-                Winit = make_A(self.K,self.N,device=device,dtype=dtype)
-                Cinit = make_Sigma(self.K,self.N,rank=self.K+10,device=device,dtype=dtype)
+            self.data = []
+            dataparam_values = dataparam_dict[data_case]
+            for idx in tqdm(range(size)):
+                Rx,A = generate_whitened_problem(V,K,N,device=device,rho_bounds=dataparam_values[0],lambda_=dataparam_values[1],dtype=dtype)
+                Winit = make_A(K,N,device=device,dtype=dtype)
+                Cinit = make_Sigma(K,N,rank=K+10,device=device,dtype=dtype)
                 self.data.append((Rx,Winit,Cinit,A))
             torch.save(self.data,self.data_path)
-        # else:
-        #     print('dataset is already good')
-        
-
+      
     def __len__(self):
-        return self.size  
+        return len(self.data)  
 
     def __getitem__(self,idx):
         return self.data[idx]
