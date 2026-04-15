@@ -14,73 +14,85 @@ import os
 import sys
 
 
-class UTitan:
-    def __init__(self,model_name='UTitan',archi='untied',training_mode='end-to-end',dimensions=(10,10000,10),dataparameters=None,dataparameters_title='Multi_case',train_size=1000,eval_size=200,optimizer=torch.optim.SGD,lr=1,weight_decay=0,gradient_processing='normalize',scheduler_mode='StepLR',step_size=3,gamma=0.9,patience=3,factor_lr=0.5,min_lr=0.01,N_updates_W=15,N_updates_C=1,num_epochs=20,loss_train=IVA_loss(),loss_eval=ISI_loss(),batch_size=64,num_layers=100,epsilon=1e-12,custom=False,load=True):
+class UTitanTrainer:
+    def __init__(self,model,model_path,training_set,eval_set,training_mode='end-to-end',optimizer=torch.optim.SGD,optimizer_args,scheduler,scheduler_args,gradient_processing='normalize',loss_train=IVA_loss(),loss_eval=ISI_loss(),num_epochs=20,batch_size=100):
+        self.model = model
+        self.model_path = model_path
+        os.makedirs(self.model_path,exist_ok=True)
+        self.training_set = training_set
+        self.eval_set = eval_set
+    # def __init__(self,model_name='UTitan',archi='untied',training_mode='end-to-end',dimensions=(10,10000,10),dataparameters=None,dataparameters_title='Multi_case',train_size=1000,eval_size=200,optimizer=torch.optim.SGD,lr=1,weight_decay=0,gradient_processing='normalize',scheduler_mode='StepLR',step_size=3,gamma=0.9,patience=3,factor_lr=0.5,min_lr=0.01,N_updates_W=15,N_updates_C=1,num_epochs=20,loss_train=IVA_loss(),loss_eval=ISI_loss(),batch_size=64,num_layers=100,epsilon=1e-12,custom=False,load=True):
         
-        # Dataset information
-        self.date = datetime.now().strftime("%Y-%m-%d_%H-%M")
-        self.dimensions = dimensions
-        self.N,self.V,self.K = dimensions
-        self.dataparameters_title = dataparameters_title
-        self.dataparameters = dataparameters
-        self.train_size = train_size
-        self.eval_size = eval_size
-        self.dataset_path = f'Result_data/datasets/{self.dataparameters_title}/N_{self.N}_K_{self.K}'
-        os.makedirs(self.dataset_path,exist_ok=True)
-        self.train_set_path = f'{self.dataset_path}/train'
-        self.eval_set_path = f'{self.dataset_path}/eval'
+        ## Dataset information
+        # self.date = datetime.now().strftime("%Y-%m-%d_%H-%M")
+        # self.dimensions = dimensions
+        # self.N,self.V,self.K = dimensions
+        # self.dataparameters_title = dataparameters_title
+        # self.dataparameters = dataparameters
+        # self.train_size = train_size
+        # self.eval_size = eval_size
+        # self.dataset_path = f'Result_data/datasets/{self.dataparameters_title}/N_{self.N}_K_{self.K}'
+        # os.makedirs(self.dataset_path,exist_ok=True)
+        # self.train_set_path = f'{self.dataset_path}/train'
+        # self.eval_set_path = f'{self.dataset_path}/eval'
         
         # Model architecture information
-        self.model_name = model_name
+        # self.model_name = model_name
         self.dtype = torch.cuda.FloatTensor
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.num_layers = num_layers
-        self.archi = archi
-        self.N_updates_W = N_updates_W
-        self.N_updates_C = N_updates_C
-        self.epsilon = epsilon
-        self.model = UTitanIVAGModel(self.N,self.K,self.num_layers,N_updates_W=N_updates_W,N_updates_C=N_updates_C,epsilon=epsilon,archi=archi,custom=custom).to(self.device)
+        # self.num_layers = num_layers
+        # self.archi = archi
+        # self.N_updates_W = N_updates_W
+        # self.N_updates_C = N_updates_C
+        # self.epsilon = epsilon
+        # self.model = UTitanIVAGModel(self.N,self.K,self.num_layers,N_updates_W=N_updates_W,N_updates_C=N_updates_C,epsilon=epsilon,archi=archi,custom=custom).to(self.device)
         layer = self.model.Layer if self.model.tied else self.model.Layers[0] 
         self.param_names = [name for name,_ in layer.named_parameters()]
         self.num_param = len(self.param_names)
         
         # training information
         self.training_mode = training_mode # 'end-to-end' or 'greedy' or 'group_of_layers' or 'local' or 'one_by_one'
-        if optimizer == torch.optim.Adam:
-            opt_name = 'Adam'
-        elif optimizer == torch.optim.SGD:
-            opt_name = 'SGD'
-        opt_name = opt_name + '_' + gradient_processing
+        # if optimizer == torch.optim.Adam:
+        #     opt_name = 'Adam'
+        # elif optimizer == torch.optim.SGD:
+        #     opt_name = 'SGD'
+        # opt_name = opt_name + '_' + gradient_processing
         self.scheduler_mode = scheduler_mode
         self.gradient_processing = gradient_processing
         self.is_greedy = self.training_mode in ['greedy','group_of_layers']
-        self.lr = lr
-        self.factor_lr = factor_lr
-        self.min_lr = min_lr
+        # self.lr = lr
+        # self.factor_lr = factor_lr
+        # self.min_lr = min_lr
         self.num_epochs = num_epochs
         self.batch_size = batch_size
         if self.training_mode == 'local' and not self.model.tied:
             self.optimizers = []
             self.schedulers = []
             for i, layer in enumerate(self.model.Layers):
-                self.optimizers.append(optimizer(self.model.Layers[i].parameters(),lr=self.lr,weight_decay=weight_decay))
-                if scheduler_mode == 'ReduceLROnPlateau':
-                    self.schedulers.append(torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizers[i],mode='min',factor=factor_lr,patience=patience,min_lr=min_lr,threshold=1e-6))
-                elif scheduler_mode == 'StepLR':
-                    self.schedulers.append(torch.optim.lr_scheduler.StepLR(self.optimizers[i],step_size=step_size,gamma=gamma))
+                self.optimizers.append(optimizer(self.model.Layers[i].parameters(),optimizer_args))
+                self.schedulers.append(scheduler(self.optimizers[i],scheduler_args))
+                # self.optimizers.append(optimizer(self.model.Layers[i].parameters(),lr=self.lr,weight_decay=weight_decay))
+                # if scheduler_mode == 'ReduceLROnPlateau':
+                #     self.schedulers.append(torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizers[i],mode='min',factor=factor_lr,patience=patience,min_lr=min_lr,threshold=1e-6))
+                # elif scheduler_mode == 'StepLR':
+                #     self.schedulers.append(torch.optim.lr_scheduler.StepLR(self.optimizers[i],step_size=step_size,gamma=gamma))
         else:
-            self.optimizer = optimizer(self.model.parameters(),lr=self.lr,weight_decay=weight_decay)
-            if scheduler_mode == 'ReduceLROnPlateau':
-                self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer,mode='min',factor=factor_lr,patience=patience,min_lr=min_lr,threshold=1e-6)
-            elif scheduler_mode == 'StepLR':
-                self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer,step_size=step_size,gamma=gamma)           
+            self.optimizer = optimizer(self.model_parameters,optimizer_args)
+            self.scheduler = scheduler(self.optimizer,scheduler_args)
+            # self.optimizer = optimizer(self.model.parameters(),lr=self.lr,weight_decay=weight_decay)
+            # if scheduler_mode == 'ReduceLROnPlateau':
+            #     self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer,mode='min',factor=factor_lr,patience=patience,min_lr=min_lr,threshold=1e-6)
+            # elif scheduler_mode == 'StepLR':
+            #     self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer,step_size=step_size,gamma=gamma)           
         self.loss_train = loss_train
         self.loss_eval = loss_eval
-        self.writer = SummaryWriter(f'runs/{self.model_name}_{archi}_{training_mode}_{opt_name}_{self.dataparameters_title}_N_{self.N}_K_{self.K}')
+        self.writer = SummaryWriter(f'runs/{model_path}')
+        # self.writer = SummaryWriter(f'runs/{self.model_name}_{archi}_{training_mode}_{opt_name}_{self.dataparameters_title}_N_{self.N}_K_{self.K}')
         
         # Model path information
-        self.model_path = f'Result_data/models/{self.dataparameters_title}/N_{self.N}_K_{self.K}/{self.model_name}_{archi}_{training_mode}_{opt_name}'
-        os.makedirs(self.model_path,exist_ok=True)
+        # self.model_path = f'Result_data/models/{self.dataparameters_title}/N_{self.N}_K_{self.K}/{self.model_name}_{archi}_{training_mode}_{opt_name}'
+        # os.makedirs(self.model_path,exist_ok=True)
+        
         self.parameters_path = os.path.join(self.model_path,'parameters')
         self.train_loss_path = os.path.join(self.model_path,'train_loss')
         self.eval_trajectories_path = os.path.join(self.model_path,'eval_trajectories')
@@ -89,19 +101,17 @@ class UTitan:
         self.lr_values_path = os.path.join(self.model_path,'lr_values')
 
         # load or create datasets and data loaders 
-        self.training_set = IVAGDataset(dimensions=self.dimensions,dataparameters=self.dataparameters,size=self.train_size,device=self.device)
-        self.eval_set = IVAGDataset(data_path=self.eval_set_path,dimensions=self.dimensions,dataparameters=self.dataparameters,size=self.eval_size,device=self.device)
         self.training_loader = DataLoader(self.training_set,batch_size=self.batch_size,shuffle=True)
         self.eval_loader = DataLoader(self.eval_set,batch_size=self.batch_size,shuffle=True)
-        self.num_batches = math.ceil(self.training_set.size/self.batch_size)
+        self.num_batches = math.ceil(self.training_set.__len__()/self.batch_size)
 
         # records
         self.train_loss_record = torch.zeros((self.num_epochs,self.num_batches))
-        self.eval_trajectories_record_jisi = torch.zeros((self.num_epochs,self.num_batches,self.num_layers+1))
-        self.eval_trajectories_record_jiva = torch.zeros((self.num_epochs,self.num_batches,self.num_layers+1))
-        self.param_values_records = torch.zeros((self.num_epochs,self.num_batches,self.num_layers,self.num_param))
-        self.grad_values_records = torch.zeros((self.num_epochs,self.num_batches,self.num_layers,self.num_param))
-        self.lr_values_records = torch.zeros(self.num_epochs,self.num_batches,self.num_layers)
+        self.eval_trajectories_record_jisi = torch.zeros((self.num_epochs,self.num_batches,self.model.num_layers+1))
+        self.eval_trajectories_record_jiva = torch.zeros((self.num_epochs,self.num_batches,self.model.num_layers+1))
+        self.param_values_records = torch.zeros((self.num_epochs,self.num_batches,self.model.num_layers,self.num_param))
+        self.grad_values_records = torch.zeros((self.num_epochs,self.num_batches,self.model.num_layers,self.num_param))
+        self.lr_values_records = torch.zeros(self.num_epochs,self.num_batches,self.model.num_layers)
         self.min_eval = float('inf')
         
     def train(self):
@@ -120,12 +130,12 @@ class UTitan:
                     self.local_training(Winit,Cinit,Rx,A,epoch,batch)
                 else:
                     if self.training_mode == 'group_of_layers':
-                        learning_layers = epoch*(self.num_layers//self.num_epochs),(epoch+1)*(self.num_layers//self.num_epochs)
+                        learning_layers = epoch*(self.model.num_layers//self.num_epochs),(epoch+1)*(self.model.num_layers//self.num_epochs)
                     elif self.training_mode == 'one_by_one':
                         learning_layers = (epoch,epoch)
                     else: 
                         #training_mode is 'greedy' or 'end-to-end'
-                        learning_layers = (0,self.num_layers)
+                        learning_layers = (0,self.model.num_layers)
                     outputs = self.model(Rx,Winit,Cinit,learning_layers=learning_layers,track_cost=True,greedy=self.is_greedy)
                     if self.is_greedy:
                         loss_train_value = torch.mean(outputs['cost'])
@@ -178,7 +188,7 @@ class UTitan:
         rho_Rx = spectral_norm_extracted(Rx,K,N)  
         W,C,W_prev,C_prev = Winit.clone(),Cinit.clone(),Winit.clone(),Cinit.clone()
         outputs = {'W':W,'C':C,'Rx':Rx,'A':A}
-        for i in range(self.num_layers):
+        for i in range(self.model.num_layers):
             layer = self.model.Layer if self.model.tied else self.model.Layers[i]
             optimizer = self.optimizer if self.model.tied else self.optimizers[i]
             scheduler = self.scheduler if self.model.tied else self.schedulers[i]
@@ -204,14 +214,12 @@ class UTitan:
     def compute_trajectory(self,loader=None,write=True,epoch=None,batch=None,record_layer_improvements=False):
         global_step = epoch * len(self.training_loader) + batch + 1
         if loader == None:
-            eval_set = IVAGDataset(data_path=self.eval_set_path,dimensions=self.dimensions,dataparameters=self.dataparameters,size=self.eval_size,device=self.device)
-            loader = DataLoader(eval_set,batch_size=self.batch_size,shuffle=True)
+            loader = self.eval_loader
         for _,(Rx,Winit,Cinit,A) in enumerate(loader):
             with torch.no_grad():                        
                 outputs = self.model(Rx,Winit,Cinit,track_jisi=True,A=A,track_cost=True)
-                self.eval_trajectories_record_jiva[epoch,batch,:] += outputs['cost']/self.eval_size
-                self.eval_trajectories_record_jisi[epoch,batch,:] += outputs['jisi']/self.eval_size
-        if write:
+                self.eval_trajectories_record_jiva[epoch,batch,:] += outputs['cost']/loader.daraset.__len__()
+                self.eval_trajectories_record_jisi[epoch,batch,:] += outputs['jisi']loader.daraset.__len__()
             self.plot_trajectory(self.eval_trajectories_record_jiva[epoch,batch,:],'eval_jiva','IVA cost',epoch,batch,'Trajectories',global_step,color='b')
             self.plot_trajectory(self.eval_trajectories_record_jisi[epoch,batch,:],'eval_jisi','jISI score',epoch,batch,'Trajectories',global_step,color='g')
         if record_layer_improvements:
