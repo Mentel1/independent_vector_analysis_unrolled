@@ -39,7 +39,7 @@ class UTitan:
         self.N_updates_W = N_updates_W
         self.N_updates_C = N_updates_C
         self.epsilon = epsilon
-        self.model = UTitanIVAGModel(N_updates_W,N_updates_C,num_layers=num_layers,epsilon=epsilon,archi=archi,custom=custom,N=self.N,K=self.K).to(self.device)
+        self.model = UTitanIVAGModel(self.N,self.K,self.num_layers,N_updates_W=N_updates_W,N_updates_C=N_updates_C,epsilon=epsilon,archi=archi,custom=custom).to(self.device)
         layer = self.model.Layer if self.model.tied else self.model.Layers[0] 
         self.param_names = [name for name,_ in layer.named_parameters()]
         self.num_param = len(self.param_names)
@@ -89,7 +89,7 @@ class UTitan:
         self.lr_values_path = os.path.join(self.model_path,'lr_values')
 
         # load or create datasets and data loaders 
-        self.training_set = IVAGDataset(data_path=self.train_set_path,dimensions=self.dimensions,dataparameters=self.dataparameters,size=self.train_size,device=self.device)
+        self.training_set = IVAGDataset(dimensions=self.dimensions,dataparameters=self.dataparameters,size=self.train_size,device=self.device)
         self.eval_set = IVAGDataset(data_path=self.eval_set_path,dimensions=self.dimensions,dataparameters=self.dataparameters,size=self.eval_size,device=self.device)
         self.training_loader = DataLoader(self.training_set,batch_size=self.batch_size,shuffle=True)
         self.eval_loader = DataLoader(self.eval_set,batch_size=self.batch_size,shuffle=True)

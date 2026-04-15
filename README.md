@@ -1,89 +1,57 @@
-# Independent Vector Analysis
+# Independent Vector Analysis Unrolled
    
-This package contains the Python versions of IVA-G [1] and IVA-L-SOS [2], converted from the [MLSP-Lab MATLAB Codes](http://mlsp.umbc.edu/resources.html).
+This package contains the Pytorch implementations of the architecture, datasets, and training/reporting pipelines for U-TITAN-IVA-G. [article to come]
+<!-- This package contains the Python versions of IVA-G [1] and IVA-L-SOS [2], converted from the [MLSP-Lab MATLAB Codes](http://mlsp.umbc.edu/resources.html).
 
 - **Website:** http://mlsp.umbc.edu/jointBSS_introduction.html
-- **Source-code:** https://github.com/SSTGroup/independent_vector_analysis
+- **Source-code:** https://github.com/SSTGroup/independent_vector_analysis -->
 
 
-## Installing independent_vector_analysis
+## Installing independent_vector_analysis_unrolled
 
-The only pre-requisite is to have **Python 3** (>= version 3.6) installed.
+<!-- The only pre-requisite is to have **Python 3** (>= version 3.6) installed.
 The iva package can be installed with
 
     pip install independent_vector_analysis
 
-Required third party packages will automatically be installed.
+Required third party packages will automatically be installed. -->
 
 
-## Quickstart
+## Package description
 
-First, the imports:
+This package is organized as follows: 
 
-    import numpy as np
-    from independent_vector_analysis import iva_g, consistent_iva
-    from independent_vector_analysis.data_generation import MGGD_generation
+The subfolder "Result_data" contains all the data that needs to be made persistant. In particular, this is where we store datasets, model parameters and the reporting of their training, and the results from the experiments.
 
-Create a dataset with N=3 sources, which are correlated across K=4 datasets.
-Each source consists of T=10000 samples:
-    
-    N = 3
-    K = 4
-    T = 10000
-    rho = 0.7
-    S = np.zeros((N, T, K))
-    for idx in range(N):
-        S[idx, :, :] = MGGD_generation(T, K, 'ar', rho, 1)[0].T
-    A = np.random.randn(N,N,K)
-    X = np.einsum('MNK, NTK -> MTK', A, S)
-    W, cost, Sigma_n, isi = iva_g(X, A=A, jdiag_initW=False)
+The subfolder "Algorithms" contains the code to run the iterative versions of TITAN-IVA-G and IVA-G, in a pytorch implementation, as well as all the useful helpers.
 
-Apply IVA-G to reconstruct the sources.
-If the mixing matrix *A* is passed, the ISI is calculated.
-Let the demixing matrix W be initialized by joint diagonalization:
+The subfolder "runs" contains the figures and data used for Tensorboard monitoring.
 
-    W, cost, Sigma_n, isi = iva_g(X, A=A, jdiag_initW=False)
+The subfolder "TITAN_Unrolled" contains the classes of datasets, models, and training pipeline for processing UTitan architectures.
 
-*W* is the estimated demixing matrix.
-*cost* is the cost for each iteration.
-*Sigma_n*[:,:,n] contains the covariance matrix of the nth SCV.
-*isi* is the joint ISI for each iteration.
+### Naming path conventions
 
-Find the most consistent result of 500 runs in IVA-L-SOS:
-    
-    iva_results = consistent_iva(X, which_iva='iva_l_sos', n_runs=500)
+The names "Case_A,...,Case_D" refer to the parameters used to generate the data, we can have datasets that do not purely belong to one of these cases but then we will come up with new names for them. The data is also characterized by the dimensions (N,K), so we can name "{data_case}/N_{N}_K_{K}" the data_path.
 
-where *iva_results* is a dict containing:
-* 'W' : estimated demixing matrix of dimensions N x N x K
-* 'W_change' : change in W for each iteration
-* 'S' : estimated sources of dimensions N x T x K
-* 'A' : estimated mixing matrix of dimensions N x N x K
-* 'scv_cov' : covariance matrices of the SCVs, of dimensions K x K x N (the same as *Sigma_n* in iva_g / iva_l_sos)
-* 'cross_isi' : cross joint ISI for each run compated with all other runs
+The training is characterized by the optimizer
 
-[comment]: <> (If you see a bug, open an [issue]&#40;https://github.com/tensorly/tensorly/issues&#41;, or better yet, a [pull-request]&#40;https://github.com/tensorly/tensorly/pulls>&#41;!)
+A model subfolder (containing its parameters and all the reporting data of its training) should be named after its own characteristics (architecture/number_of_layers)
+But the total path to reach a model should also identify:
+the characteristics of the data it can process/it has been trained on
+and the characteristics of the training it followed.
+So we store each model in a folder with path composed as follows: {models_folder}/{data_path}/{training_path}/{architecture_path}.
+Likewise, a dataset is characterized with the type of data it contains and its size/function. It is stored at an address composed as {datasets_folder}/{data_path}/{function}.
+
+We cannot at the same time have reasonably short paths and paths that contain exhaustive information about the models/datasets. If we are sure that the information displayed in the path identifies at most one model, the path may be not fully informative, but at least we will not have conflicts of addresses, and we can store a config file with the model containing all the information we need to know. 
+However, if conflicts are possible, and we still do not want to extend the length of the paths, there is the possibility of using hash-codes to embedd all the config information in a short code (as it is done in the git projects for instance). The problem with this approach is that it makes it harder for the user to explore the file system by hand...
+
+I need to sort this out with competent architects, for now, I will just define informative path such that there will be no conflicts for the usage that covers my dissertation.
 
 ## Contact
 
-In case of questions, suggestions, problems etc. please send an email to isabell.lehmann@sst.upb.de, or open an issue here on Github.
+If you have any questions, you can contact me at clement.cosserat@gmail.com
 
 ## Citing
 
-If you use this package in an academic paper, please cite [3].
-
-    @inproceedings{Lehmann2022,
-      title   = {Multi-task fMRI Data Fusion Using IVA and PARAFAC2},
-      author  = {Lehmann, Isabell and Acar, Evrim and Hasija, Tanuj and Akhonda, M.A.B.S. and Calhoun, Vince D. and Schreier, Peter J. and Adali, T{\"u}lay},
-      booktitle={ICASSP 2022-2022 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)},
-      pages={1466--1470},
-      year={2022},
-      organization={IEEE}
-      } 
-    
-
-[1] M. Anderson, T. Adali, & X.-L. Li, **Joint Blind Source Separation with Multivariate Gaussian Model: Algorithms and Performance Analysis**, *IEEE Transactions on Signal Processing*, 2012, 60, 1672-1683
-
-[2] S. Bhinge, R. Mowakeaa, V.D. Calhoun, T. Adalı, **Extraction of time-varying spatio-temporal networks using parameter-tuned constrained IVA**, *IEEE Transactions on Medical Imaging*, 2019, vol. 38, no. 7, 1715-1725
-
-[3] I. Lehmann, E. Acar, et al., **Multi-task fMRI Data Fusion Using IVA and PARAFAC2**, *ICASSP 2022 - 2022 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)*, 2022, pp. 1466-1470
+If you use this software, please cite... 
 
