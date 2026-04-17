@@ -3,6 +3,7 @@ from datetime import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+import json
 from time import time
 from tqdm import tqdm
 from TITAN_Unrolled.data import *
@@ -188,7 +189,7 @@ class ComparisonExperimentIvaG:
             self.setup['Winits'][exp] = make_A(K,N)
             self.setup['Cinits'][exp] = make_Sigma(K,N,rank=K+10)
             
-    def _fill_setup_from_dataset(data):
+    def _fill_setup_from_dataset(self,data):
         for exp in range(self.N_exp):
             Rx,Winit,Cinit,A = data[exp]
             # Pas de variation de num_samples/noise_levels depuis le dataset
