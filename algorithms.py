@@ -137,13 +137,16 @@ class TitanIvaG(IvaGAlgorithms):
     
 class UTitanIvaG(IvaGAlgorithms):    
 
-    def __init__(self,color='b',name='Utitan',legend='U-TITAN-IVA-G',dimensions=(30,10000,20),data_case='Case_A',archi='untied',num_layers=500,tol=1e-2,N_updates_W=10,N_updates_C=1,training_mode='local',opt_name ='SGD',gradient_processing='normalize',step_size=5,device='cuda'):
+    def __init__(self,color='b',name='UTitan',legend='U-TITAN-IVA-G',dimensions=(30,10000,20),data_case='Case_A',archi='untied',num_layers=500,tol=1e-2,N_updates_W=10,N_updates_C=1,training_mode='local',opt_name ='SGD',gradient_processing='normalize',step_size=5,device='cuda'):
         super().__init__(name=name,legend=legend,color=color)
         self.device = torch.device(device if torch.cuda.is_available() else 'cpu')
         self.dimensions = N,_,K = dimensions
         self.data_case = data_case
+        data_path = f'Result_data/models/{data_case}/N_{N}_K_{K}'
+        training_path = f'{training_mode}_{opt_name}_{step_size}_{gradient_processing}'
+        model_path = f'UTitan_{archi}_{num_layers}'
         self.N_updates_W = N_updates_W
-        parameters_path=f'Result_data/models/{data_case}/N_{N}_K_{K}/UTitan{step_size}_{archi}_{training_mode}_{opt_name}_{gradient_processing}/parameters'
+        parameters_path=f'{data_path}/{training_path}/{model_path}/parameters'
         self.model = UTitanIVAGModel(N,K,num_layers,N_updates_W=N_updates_W,N_updates_C=N_updates_C,archi=archi,load=True,parameters_path=parameters_path).to(self.device)
         self.tol = tol
         self.shorten_model()        

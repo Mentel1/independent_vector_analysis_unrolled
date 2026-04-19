@@ -177,3 +177,71 @@ class ExperimentReporter:
             os.makedirs(os.path.dirname(fig_path), exist_ok=True)
             fig.savefig(fig_path,dpi=200,format=extension)
             plt.show()
+            
+            
+#====== FONCTIONS POUR REPORT LES EXPERIENCES D'UNROLLING ======     
+ALGO_NAME_MAP = {
+    "titan": "PALM-IVA-G",
+    "UTitan_tied": "U-PALM-IVA-G-tied",
+    "UTitan_untied": "U-PALM-IVA-G-untied",
+    "UTitan_inertial-tied": "U-PALM-IVA-G-tied-inertial",
+    "UTitan_inertial-untied": "U-PALM-IVA-G-untied-inertial",
+}
+
+ALGO_ORDER = [
+    "titan",
+    "UTitan_tied",
+    "UTitan_untied",
+    "UTitan_inertial-tied",
+    "UTitan_inertial-untied",
+]
+
+def collect_results(experiment_paths):
+    results = {}
+    for exp_path in experiment_paths:
+        res_path = os.path.join(exp_path, "res")
+        cases = os.listdir(res_path)
+        for case in cases:
+            case_path = os.path.join(res_path,case)
+            dims = os.listdir(case_path)
+            for dim in dims:
+                dim_path = os.path.join(case_path,dim)
+                if case not in results:
+                    results[case] = {}
+                if dim not in results[case]:
+                    results[case][dim] = {}
+                for algo in ALGO_ORDER:
+                    jisi_path = os.path.join(dim_path, f"{algo}_final_jisi")
+                    time_path = os.path.join(dim_path, f"{algo}_total_times")
+                    jisi_mean, jisi_std = read_metric(jisi_path)
+                    time_mean, _ = read_metric(time_path)
+                    results[case][dim][algo] = {"jisi_mean": jisi_mean,"jisi_std": jisi_std,"time_mean": time_mean,}
+    return results
+
+def read_metric(path):
+    result = np.fromfile(path,sep=',')
+    mean = np.mean(result)
+    std = np.std(result)
+    return mean,std
+
+def select_best(results):
+    for case in results.keys():
+        for dim in results[case].keys():
+            min_jisi = np.inf
+            min_time = np.inf
+            best_algo_jisi = ''
+            best_algo_time = ''
+            for algo in results[case][dim].keys():
+                results[case][dim][algo]['is_best_jisi'] = False
+                results[case][dim][algo]['is_best_time'] = False
+                if results[case][dim][algo]['jisi_mean'] < min_jisi:
+                    best_algo_jisi = algo
+                    min_jisi = results[case][dim][algo]['jisi_mean']
+                if results[case][dim][algo]['time_mean'] < min_time:
+                    best_algo_time = algo
+                    min_time = results[case][dim][algo]['time_mean']
+            results[case][dim][best_algo_jisi]['is_best_jisi'] = False
+            results[case][dim][best_algo_time]['is_best_time'] = False
+                
+            
+    
