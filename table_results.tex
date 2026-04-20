@@ -1,0 +1,30 @@
+\begin{table}[ht]
+\centering
+\renewcommand{\arraystretch}{1.7}
+\resizebox{0.8\linewidth}{!}{
+\begin{tabular}{clcccc}
+\toprule
+\multirow{2}{*}{\textbf{Dataset}} & \multirow{2}{*}{\textbf{Algorithm}} & \multicolumn{2}{c}{\textbf{$ (K,N)=(5,10) $}} & \multicolumn{2}{c}{\textbf{$ (K,N)=(20,30) $}} \\
+\cmidrule(lr){3-4} \cmidrule(lr){5-6} 
+& & $\mu_{\rm jISI} \pm \sigma_{\rm jISI}$ & $\mu_\texttt{T}(s)$ & $\mu_{\rm jISI} \pm \sigma_{\rm jISI}$ & $\mu_\texttt{T}(s)$ \\
+\midrule
+\multirow{5}{*}{ $\D^{\rm Case_A}$ }
+& \textbf{PALM-IVA-G}& $1.08 \times 10^{-1} \pm 2.25 \times 10^{-2}$ & ${58.09}$ & $4.72 \times 10^{-2} \pm 5.77 \times 10^{-3}$ & ${54.10}$ \\
+& \textbf{U-PALM-IVA-G-tied}& $2.11 \times 10^{-1} \pm 6.09 \times 10^{-2}$ & $\boldsymbol{17.01}$ & $\boldsymbol{4.48 \times 10^{-2} \pm 3.52 \times 10^{-3}}$ & ${6.83}$ \\
+& \textbf{U-PALM-IVA-G-untied}& $1.39 \times 10^{-1} \pm 5.11 \times 10^{-2}$ & ${24.18}$ & $4.54 \times 10^{-2} \pm 5.91 \times 10^{-3}$ & $\boldsymbol{6.69}$ \\
+& \textbf{U-PALM-IVA-G-tied-inertial}& $1.91 \times 10^{-1} \pm 7.63 \times 10^{-2}$ & ${20.99}$ & $4.54 \times 10^{-2} \pm 3.99 \times 10^{-3}$ & ${7.16}$ \\
+& \textbf{U-PALM-IVA-G-untied-inertial}& $\boldsymbol{1.08 \times 10^{-1} \pm 2.34 \times 10^{-2}}$ & ${22.89}$ & $4.63 \times 10^{-2} \pm 7.10 \times 10^{-3}$ & ${6.80}$ \\
+\midrule
+\multirow{5}{*}{ $\D^{\rm Case_D}$ }
+& \textbf{PALM-IVA-G}& $\boldsymbol{9.89 \times 10^{-3} \pm 5.01 \times 10^{-3}}$ & ${6.36}$ & $\boldsymbol{4.98 \times 10^{-3} \pm 5.46 \times 10^{-5}}$ & ${17.72}$ \\
+& \textbf{U-PALM-IVA-G-tied}& $1.05 \times 10^{-2} \pm 7.54 \times 10^{-3}$ & ${1.83}$ & $\boldsymbol{5.03 \times 10^{-3} \pm 2.44 \times 10^{-4}}$ & ${1.71}$ \\
+& \textbf{U-PALM-IVA-G-untied}& $1.03 \times 10^{-2} \pm 7.27 \times 10^{-3}$ & ${1.84}$ & $\boldsymbol{5.03 \times 10^{-3} \pm 2.51 \times 10^{-4}}$ & ${1.77}$ \\
+& \textbf{U-PALM-IVA-G-tied-inertial}& $2.93 \times 10^{-2} \pm 4.98 \times 10^{-2}$ & $\boldsymbol{1.74}$ & $\boldsymbol{5.03 \times 10^{-3} \pm 2.41 \times 10^{-4}}$ & $\boldsymbol{1.57}$ \\
+& \textbf{U-PALM-IVA-G-untied-inertial}& $2.53 \times 10^{-1} \pm 1.35 \times 10^{-1}$ & $\boldsymbol{1.75}$ & $\boldsymbol{5.03 \times 10^{-3} \pm 2.31 \times 10^{-4}}$ & $\boldsymbol{1.57}$ \\
+\midrule
+\bottomrule
+\end{tabular}
+}
+\caption{Results}
+\label{tab:results}
+\end{table}

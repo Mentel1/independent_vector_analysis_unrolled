@@ -213,35 +213,116 @@ def collect_results(experiment_paths):
                 for algo in ALGO_ORDER:
                     jisi_path = os.path.join(dim_path, f"{algo}_final_jisi")
                     time_path = os.path.join(dim_path, f"{algo}_total_times")
+                    # print(f'metrics for {dim_path} and algo {algo}: ')
                     jisi_mean, jisi_std = read_metric(jisi_path)
                     time_mean, _ = read_metric(time_path)
                     results[case][dim][algo] = {"jisi_mean": jisi_mean,"jisi_std": jisi_std,"time_mean": time_mean,}
     return results
 
 def read_metric(path):
-    result = np.fromfile(path,sep=',')
-    mean = np.mean(result)
-    std = np.std(result)
-    return mean,std
+    result = np.fromfile(path, sep=',')
+    mean = np.nanmean(result)
+    std = np.nanstd(result)
+    return mean, std
 
-def select_best(results):
+def select_best(results,tol_time=1e-2,tol_jisi=1e-4):
     for case in results.keys():
         for dim in results[case].keys():
             min_jisi = np.inf
             min_time = np.inf
-            best_algo_jisi = ''
-            best_algo_time = ''
             for algo in results[case][dim].keys():
-                results[case][dim][algo]['is_best_jisi'] = False
-                results[case][dim][algo]['is_best_time'] = False
-                if results[case][dim][algo]['jisi_mean'] < min_jisi:
-                    best_algo_jisi = algo
-                    min_jisi = results[case][dim][algo]['jisi_mean']
-                if results[case][dim][algo]['time_mean'] < min_time:
-                    best_algo_time = algo
-                    min_time = results[case][dim][algo]['time_mean']
-            results[case][dim][best_algo_jisi]['is_best_jisi'] = False
-            results[case][dim][best_algo_time]['is_best_time'] = False
+                min_jisi = min(min_jisi,results[case][dim][algo]['jisi_mean'])
+                min_time = min(min_time,results[case][dim][algo]['time_mean'])
+            for algo in results[case][dim].keys():
+                results[case][dim][algo]['is_best_jisi'] = results[case][dim][algo]['jisi_mean'] <= min_jisi + tol_jisi
+                results[case][dim][algo]['is_best_time'] = results[case][dim][algo]['time_mean'] <= min_time + tol_time
                 
-            
-    
+
+def format_scientific(x, precision=2):
+    # print(f'{x:.{precision}e}')
+    mantissa, exponent = f"{x:.{precision}e}".split("e")
+    exponent = int(exponent)
+    return rf"{mantissa} \times 10^{{{exponent}}}"
+
+def format_jisi(mean,std,bold=False):
+    mean_str = format_scientific(mean)
+    std_str = format_scientific(std)
+    formatted = rf"{mean_str} \pm {std_str}"
+    if bold:
+        result = rf"$\boldsymbol{{{formatted}}}$"
+    else:
+        result = rf"${formatted}$"
+    return result
+
+def format_time(mean, bold=False, precision=2):
+    result = rf"{mean:.{precision}f}"
+    if bold:
+        result = rf"$\boldsymbol{{{result}}}$"
+    else:
+        result = rf"${{{result}}}$"
+    return result
+
+def report_table(results,output_path):
+    lines = []
+    lines.append(r"\begin{table}[ht]")
+    lines.append(r"\centering")
+    lines.append(r"\renewcommand{\arraystretch}{1.7}")
+    lines.append(r"\resizebox{0.8\linewidth}{!}{")
+    lines.append(r"\begin{tabular}{clcccc}")
+    lines.append(r"\toprule")
+    # Header dynamique
+    dims = sorted(list(next(iter(results.values())).keys()),key=lambda dim: int(dim.split("_")[3]))
+    header_1 = r"\multirow{2}{*}{\textbf{Dataset}} & \multirow{2}{*}{\textbf{Algorithm}}"
+    for dim in dims:
+        K = dim.split("_")[3]
+        N = dim.split("_")[1]
+        header_1 += rf" & \multicolumn{{2}}{{c}}{{\textbf{{$ (K,N)=({K},{N}) $}}}}"
+    header_1 += r" \\"
+    lines.append(header_1)
+    # cmidrule
+    cmid = r""
+    col = 3
+    for _ in dims:
+        cmid += rf"\cmidrule(lr){{{col}-{col+1}}} "
+        col += 2
+    lines.append(cmid)
+    header_2 = r"& "
+    header_2 += r"& " + " & ".join([r"$\mu_{\rm jISI} \pm \sigma_{\rm jISI}$ & $\mu_\texttt{T}(s)$"] * len(dims))
+    header_2 += r" \\"
+    lines.append(header_2)
+    lines.append(r"\midrule")
+    # Corps du tableau
+    for case in results.keys():
+        algos = list(results[case][dims[0]].keys())
+        lines.append(rf"\multirow{{{len(algos)}}}{{*}}{{ $\D^{{\rm {case}}}$ }}")
+        for i,algo in enumerate(ALGO_ORDER):
+            algo_name = ALGO_NAME_MAP[algo]
+            line = "& " + rf"\textbf{{{algo_name}}}"
+            for dim in dims:
+                res = results[case][dim][algo]
+                jisi = format_jisi(res["jisi_mean"],res["jisi_std"],res["is_best_jisi"],)
+                time = format_time(res["time_mean"],res["is_best_time"],)
+                line += f"& {jisi} & {time} "
+            line += r"\\"
+            lines.append(line)
+        lines.append(r"\midrule")
+    lines.append(r"\bottomrule")
+    lines.append(r"\end{tabular}")
+    lines.append(r"}")
+    lines.append(r"\caption{Results}")
+    lines.append(r"\label{tab:results}")
+    lines.append(r"\end{table}")
+    with open(output_path, "w") as f:
+        f.write("\n".join(lines))
+        
+
+experiment_paths = [
+'Result_data/experiments/2026-03-18_11-13_Testing_unrolling',
+'Result_data/experiments/2026-04-17_16-08_Unrolling_comparison_small',
+'Result_data/experiments/2026-04-19_18-45_Unrolling_comparison_D_small',
+'Result_data/experiments/2026-04-19_19-17_Unrolling_comparison_D_big'
+]
+
+results = collect_results(experiment_paths)
+select_best(results)
+report_table(results, "table_results.tex")
