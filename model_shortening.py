@@ -39,6 +39,8 @@ def plot_model_shortening(model_path,tol=1e-2,folder='plot_val_loss',file='short
     ax.set_title(rf'{title}',fontsize=fontsize)
     ax.legend(fontsize=fontsize)
     ax.grid(True)
+    ax.axvline(x=L,color='gray',linestyle='--',linewidth=0.8,alpha=0.5)
+    ax.text(L,ax.get_ylim()[1],'$L^*$',fontsize=8,color='black',ha='center',va='bottom')
     plt.savefig(f'{output_path}/{file}')
     plt.close()
   
