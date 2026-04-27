@@ -24,18 +24,18 @@ def create_algos_titanIVAG(varying_param, values, color_bounds=[(0.2,1,0.2),(0.2
 # MAIN EXPERIMENT (MULTIPARAMETER)
 #=============================================================================================
 
-Ks = [20]
-Ns = [30] 
+Ks = [5]
+Ns = [10] 
 common_params = [Ks,Ns]
 data_case = 'Case_D'
 
 algos = []
 algos.append(TitanIvaG(nu=0,gamma_c=1.99))
 for archi in ['tied','untied','inertial-tied','inertial-untied']:
-    algo = UTitanIvaG(name='UTitan'+'_'+archi,archi=archi,dimensions=(Ns[0],10000,Ks[0]),data_case=data_case,num_layers=200,tol=1e-2)
+    algo = UTitanIvaG(name='UTitan'+'_'+archi,archi=archi,dimensions=(Ns[0],10000,Ks[0]),data_case=data_case,num_layers=200,tol=0)
     algos.append(algo)
 
-exp = ComparisonExperimentIvaG(name='Unrolling_comparison_D_big',dataparams_titles=[data_case],common_params=common_params,algos=algos,N_exp=100)
+exp = ComparisonExperimentIvaG(name='Unrolling_comparison_D_small',dataparams_titles=[data_case],common_params=common_params,algos=algos,N_exp=1)
 exp.compute_multi_runs()
 
 # exp_path = 'Result_data/experiments/2026-03-18_11-13_Testing_unrolling/res/Case_A/N_30_K_20'

@@ -28,12 +28,12 @@ def plot_model_shortening(model_path,tol=1e-2,folder='plot_val_loss',file='short
         jisi = jisi_scores[L]
     os.makedirs(output_path,exist_ok=True)
     _,ax = plt.subplots(figsize=(12,6))
-    ydata_1 = jisi_scores[:L+1].numpy()
-    xdata_1 = range(L+1)
-    ax.plot(xdata_1,ydata_1,color=colors[1],linestyle='-',linewidth=2,label=labels[1])
-    ydata_2 = jisi_scores[L+1:]
-    xdata_2 = range(L+1,model.num_layers)
-    ax.plot(xdata_2,ydata_2,color=colors[2],linestyle='-',linewidth=2,label=labels[2])
+    ydata_1 = jisi_scores[:L].numpy()
+    xdata_1 = range(L)
+    ax.plot(xdata_1,ydata_1,color=colors[0],linestyle='-',linewidth=2,label=labels[1])
+    ydata_2 = jisi_scores[L:]
+    xdata_2 = range(L,model.num_layers+1)
+    ax.plot(xdata_2,ydata_2,color=colors[0],linestyle='-',linewidth=2,label=labels[1])
     ax.set_xlabel(rf'{xlabel}',fontsize=fontsize)
     ax.set_ylabel(rf'{ylabel}',fontsize=fontsize)
     ax.set_title(rf'{title}',fontsize=fontsize)
