@@ -19,4 +19,4 @@ notebooks/.ipynb_checkpoints/
 Result_data/datasets
 runs/
 
-Result_data/*
+Result_data/models/*
