@@ -32,7 +32,7 @@ def plot_trajectory(model_path,data,name,ylabel,epoch,batch,folder,step,color='g
     
    
 def plot_loss(model_path,data,name,ylabel,num_batch,folder='Losses',color='r',marker='',xlim=None,ylim=None,fontsize=14):
-    xlabel = 'Global_step'
+    xlabel = 'Step'
     title = rf'{ylabel} across steps'
     os.makedirs(f'{model_path}/{folder}',exist_ok=True)
     save_path = f'{model_path}/{folder}/{name}'
@@ -52,8 +52,8 @@ def report_model(param_names,param_labels,model_path):
     num_epoch,num_batch,num_layers,num_param = model_values['param_values'].shape
     final_step = end_epoch * num_batch + end_batch
     max_step = num_epoch*num_batch
-    # report_params(model_values,max_step,final_step,num_layers,num_batch,num_param,param_names,param_labels,model_path)
-    # report_trajectories(model_values,num_layers,max_step,final_step,num_batch,model_path)
+    report_params(model_values,max_step,final_step,num_layers,num_batch,num_param,param_names,param_labels,model_path)
+    report_trajectories(model_values,num_layers,max_step,final_step,num_batch,model_path)
     report_losses(model_path,model_values,num_batch,final_step,max_step,num_layers)
 
 def load_model_data(model_path):
@@ -65,18 +65,16 @@ def load_model_data(model_path):
     return model_values
 
 def report_losses(model_path,model_values,num_batch,final_step,max_step,num_layers):
-    # eval_trajectory_jisi = model_values['eval_trajectories_jisi'].reshape(max_step,num_layers+1)
-    # eval_trajectory_jiva = model_values['eval_trajectories_jiva'].reshape(max_step,num_layers+1)
-    # eval_loss_jisi = eval_trajectory_jisi[:final_step,-1]
-    # plot_loss(model_path,eval_loss_jisi,'eval_loss_jisi','jISI score',num_batch)
-    # eval_loss_jiva = eval_trajectory_jiva[:final_step,-1]
-    # plot_loss(model_path,eval_loss_jiva,'eval_loss_jiva','IVA cost',num_batch)
-    # train_loss = model_values['train_loss'].reshape(-1).detach()
-    # plot_loss(model_path,train_loss[:final_step],'train_loss','IVA cost',num_batch)                 
-    # lr_values = model_values['lr_values'][:,:,-1].reshape(-1)
-    # plot_loss(model_path,lr_values[:final_step],'lr_values','learning rate',num_batch,folder='LR',color='k')
-    if os.path.exists(f'{model_path}/Losses/train_loss_jiva.png'):
-        os.remove(f'{model_path}/Losses/train_loss_jiva.png')
+    eval_trajectory_jisi = model_values['eval_trajectories_jisi'].reshape(max_step,num_layers+1)
+    eval_trajectory_jiva = model_values['eval_trajectories_jiva'].reshape(max_step,num_layers+1)
+    eval_loss_jisi = eval_trajectory_jisi[:final_step,-1]
+    plot_loss(model_path,eval_loss_jisi,'eval_loss_jisi','jISI score',num_batch)
+    eval_loss_jiva = eval_trajectory_jiva[:final_step,-1]
+    plot_loss(model_path,eval_loss_jiva,'eval_loss_jiva','IVA cost',num_batch)
+    train_loss = model_values['train_loss'].reshape(-1).detach()
+    plot_loss(model_path,train_loss[:final_step],'train_loss','IVA cost',num_batch)                 
+    lr_values = model_values['lr_values'][:,:,-1].reshape(-1)
+    plot_loss(model_path,lr_values[:final_step],'lr_values','learning rate',num_batch,folder='LR',color='k')
 
 def report_trajectories(model_values,num_layers,max_step,final_step,num_batch,model_path):
     eval_trajectory_jisi = model_values['eval_trajectories_jisi'].reshape(max_step,num_layers+1)
@@ -98,6 +96,7 @@ def report_params(model_values,max_step,final_step,num_layers,num_batch,num_para
             plot_trajectory(model_path,param_values[step,:,param_idx],f'values of {param_names[param_idx]}',rf'values of ${param_labels[param_idx]}$',epoch,batch,'Weights_' + param_names[param_idx],step,color=plt.cm.tab10(param_idx),ylim=(param_min,param_max))
             plot_trajectory(model_path,grad_values[step,:,param_idx],f'gradients of {param_names[param_idx]}',rf'gradients of ${param_labels[param_idx]}$',epoch,batch,'Weights_grad_' + param_names[param_idx],step,color=plt.cm.tab10(param_idx),ylim=(grad_min,grad_max))
 
+   
 def main():
     param_names = ['alpha','gamma_W','gamma_C','beta_W','beta_C']
     param_labels = [r'\alpha',r'\gamma_\mathcal{W}',r'\gamma_\mathcal{C}',r'\beta_\mathcal{W}',r'\beta_\mathcal{C}']

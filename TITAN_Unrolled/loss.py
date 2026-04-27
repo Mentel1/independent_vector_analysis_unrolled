@@ -1,7 +1,6 @@
 import torch
 from .functions import *
 
-
 class ISI_loss():
     """
     Defines the ISI training loss.

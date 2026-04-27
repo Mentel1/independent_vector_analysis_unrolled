@@ -8,7 +8,7 @@ from .dataparam_dict import *
 
 class IVAGDataset(Dataset):
     def __init__(self,name='train',load=True,dimensions=(10,10000,10),data_case='Case_A',size=1000,device='cpu',dtype=torch.float32):
-        N,_,K = dimensions
+        N,V,K = dimensions
         self.data_case = data_case
         self.name = name
         self.data_path = f'Result_data/datasets/{data_case}/N_{N}_K_{K}/{name}' 
